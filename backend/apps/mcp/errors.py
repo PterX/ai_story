@@ -1,0 +1,3 @@
+class MCPToolError(Exception):
+    pass
+

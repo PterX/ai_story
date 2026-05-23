@@ -277,6 +277,8 @@ class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
         def event_stream():
             yield f"data: {json.dumps({'type': 'connected', 'node_run_id': str(node_run.id)}, ensure_ascii=False)}\n\n"
             last_payload = None
+            last_task_state = None
+            idle_count = 0
             for _ in range(600):
                 refreshed = self.get_queryset().get(id=node_run.id)
                 payload = {
@@ -291,20 +293,24 @@ class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
                     'started_at': refreshed.started_at.isoformat() if refreshed.started_at else None,
                     'completed_at': refreshed.completed_at.isoformat() if refreshed.completed_at else None,
                 }
-                if payload != last_payload:
+                changed = payload != last_payload
+                if changed:
                     yield f'data: {json.dumps(payload, ensure_ascii=False)}\n\n'
                     last_payload = payload
 
                 if refreshed.external_task_id:
                     task_state = AsyncResult(refreshed.external_task_id).state
                     if task_state in {'PENDING', 'RECEIVED', 'STARTED', 'RETRY', 'SUCCESS', 'FAILURE', 'REVOKED'}:
-                        meta_payload = {
-                            'type': 'task_state',
-                            'node_run_id': str(refreshed.id),
-                            'task_id': refreshed.external_task_id,
-                            'task_state': task_state,
-                        }
-                        yield f'data: {json.dumps(meta_payload, ensure_ascii=False)}\n\n'
+                        if task_state != last_task_state:
+                            meta_payload = {
+                                'type': 'task_state',
+                                'node_run_id': str(refreshed.id),
+                                'task_id': refreshed.external_task_id,
+                                'task_state': task_state,
+                            }
+                            yield f'data: {json.dumps(meta_payload, ensure_ascii=False)}\n\n'
+                            last_task_state = task_state
+                            changed = True
 
                 if refreshed.status in {'completed', 'failed', 'cancelled'}:
                     final_type = 'done' if refreshed.status == 'completed' else 'error'
@@ -320,7 +326,8 @@ class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
                     yield f'data: {json.dumps(final_payload, ensure_ascii=False)}\n\n'
                     break
 
-                time.sleep(1)
+                idle_count = 0 if changed else idle_count + 1
+                time.sleep(3 if idle_count >= 3 else 1)
 
             yield f"data: {json.dumps({'type': 'stream_end', 'node_run_id': str(node_run.id)}, ensure_ascii=False)}\n\n"
 

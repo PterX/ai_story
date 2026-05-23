@@ -175,7 +175,7 @@ class Text2ImageClient(BaseText2ImageClient):
         model_name = kwargs.get('model') or self.model_name
         ratio = kwargs.get('ratio', '1:1')
         resolution = kwargs.get('resolution', '2k')
-        timeout = kwargs.get('timeout', self.config.get('timeout', 60))
+        timeout = kwargs.get('timeout', self.config.get('timeout', 180))
         size = f'{width}x{height}'
         headers = {
             'Content-Type': 'application/json',

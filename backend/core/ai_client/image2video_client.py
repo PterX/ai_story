@@ -73,6 +73,11 @@ class VideoGeneratorClient:
         path = urlparse(api_url).path.rstrip('/')
         return path.endswith('/video/generations') or path.endswith('/videos/generations')
 
+    def _is_openai_videos_endpoint(self, api_url: str) -> bool:
+        """判断是否为 OpenAI 风格的 /v1/videos 接口。"""
+        path = urlparse(api_url).path.rstrip('/')
+        return path.endswith('/videos') and not path.endswith('/videos/generations')
+
     def _build_create_video_url(self) -> str:
         """构建视频生成请求地址。"""
         return self.base_url
@@ -84,6 +89,11 @@ class VideoGeneratorClient:
 
         create_url = self._build_create_video_url().rstrip('/')
         return f"{create_url}/{task_id}"
+
+    def _build_task_content_url(self, task_id: str) -> str:
+        """构建任务内容下载地址。"""
+        create_url = self._build_create_video_url().rstrip('/')
+        return f"{create_url}/{task_id}/content"
 
     def _extract_video_urls(self, content: str) -> List[str]:
         """从响应内容中提取视频地址。"""
@@ -167,6 +177,38 @@ class VideoGeneratorClient:
 
         return deduplicated
 
+    def _build_image_inputs_for_openai_videos(
+        self,
+        image_uris: Optional[List[Any]],
+        resolved_image_base64s: Optional[List[str]],
+        image_mime_type: str,
+    ) -> List[str]:
+        """构建 /v1/videos 所需的图片输入列表。"""
+        image_inputs = []
+
+        for item in image_uris or []:
+            image_url = item.get('url') if isinstance(item, dict) else item
+            if not image_url:
+                continue
+            if isinstance(image_url, str) and (
+                image_url.startswith('http://')
+                or image_url.startswith('https://')
+                or image_url.startswith('data:')
+            ):
+                image_inputs.append(image_url)
+
+        for image_base64 in resolved_image_base64s or []:
+            image_inputs.append(f'data:{image_mime_type};base64,{image_base64}')
+
+        deduplicated = []
+        seen = set()
+        for item in image_inputs:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduplicated.append(item)
+        return deduplicated
+
     def _get_video_extension(self, content_type: str = '', source_url: str = '') -> str:
         """根据响应头或URL推断视频扩展名。"""
         type_map = {
@@ -187,7 +229,12 @@ class VideoGeneratorClient:
 
         return '.mp4'
 
-    def _download_video_to_storage(self, video_url: str, timeout: int) -> dict:
+    def _download_video_to_storage(
+        self,
+        video_url: str,
+        timeout: int,
+        request_headers: Optional[Dict[str, str]] = None,
+    ) -> dict:
         """下载远程视频到本地存储并返回本地访问地址。"""
         if video_url.startswith('/api/v1/content/storage/video/'):
             relative_path = video_url.split('/api/v1/content/storage/video/', 1)[1]
@@ -197,7 +244,7 @@ class VideoGeneratorClient:
                 'original_url': video_url,
             }
 
-        response = requests.get(video_url, stream=True, timeout=timeout)
+        response = requests.get(video_url, stream=True, timeout=timeout, headers=request_headers)
         response.raise_for_status()
         extension = self._get_video_extension(
             content_type=response.headers.get('Content-Type', ''),
@@ -223,14 +270,20 @@ class VideoGeneratorClient:
     def _localize_video_item(self, item: Any, timeout: int) -> dict:
         """将单个视频结果下载到本地。"""
         original_item = item if isinstance(item, dict) else {'url': item}
-        video_url = original_item.get('url', '')
+        video_url = original_item.get('url') or original_item.get('content_url') or ''
         localized = dict(original_item)
 
         if not video_url:
             return localized
 
         try:
-            localized.update(self._download_video_to_storage(video_url, timeout))
+            localized.update(
+                self._download_video_to_storage(
+                    video_url,
+                    timeout,
+                    request_headers=original_item.get('download_headers'),
+                )
+            )
         except Exception as exc:
             localized['download_error'] = str(exc)
             localized.setdefault('original_url', video_url)
@@ -255,6 +308,107 @@ class VideoGeneratorClient:
             parts.append(f'负面提示词：{negative_prompt.strip()}')
 
         return '\n\n'.join([item for item in parts if item])
+
+    def _build_openai_videos_payload(
+        self,
+        model: str,
+        prompt: str,
+        duration_seconds: int,
+        sample_count: int,
+        aspect_ratio: str,
+        generate_audio: bool,
+        resolution: Optional[str],
+        seed: Optional[int],
+        negative_prompt: Optional[str],
+        image_inputs: List[str],
+        extra_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """构建 /v1/videos 请求体。"""
+        payload: Dict[str, Any] = {
+            'model': model,
+            'prompt': prompt,
+        }
+
+        if aspect_ratio:
+            payload['aspect_ratio'] = aspect_ratio
+        # 暂时注释，sora 模型不支持
+        # if duration_seconds:
+        #     payload['duration'] = duration_seconds
+        if image_inputs:
+            payload['reference_mode'] = 'image'
+            payload['image'] = image_inputs
+
+        return payload
+
+    def _extract_task_id(self, task_result: Any) -> str:
+        """从创建任务响应中提取任务 ID。"""
+        task_id = task_result
+        if isinstance(task_result, dict):
+            task_id = (
+                task_result.get('task_id')
+                or task_result.get('id')
+                or task_result.get('video_id')
+            )
+            if not task_id and isinstance(task_result.get('data'), dict):
+                data = task_result['data']
+                task_id = data.get('task_id') or data.get('id') or data.get('video_id')
+        if not task_id:
+            raise ValueError('创建视频任务成功，但响应中缺少任务 ID')
+        return task_id
+
+    def _normalize_status(self, status_value: Optional[str]) -> str:
+        """归一化不同网关的任务状态。"""
+        normalized = (status_value or '').strip().lower()
+        status_map = {
+            'success': TaskStatus.SUCCESS.value,
+            'succeeded': TaskStatus.SUCCESS.value,
+            'completed': TaskStatus.COMPLETED.value,
+            'in_progress': TaskStatus.RUNNING.value,
+            'processing': TaskStatus.RUNNING.value,
+            'running': TaskStatus.RUNNING.value,
+            'queued': TaskStatus.QUEUED.value,
+            'pending': TaskStatus.QUEUED.value,
+            'failed': TaskStatus.FAILED.value,
+            'error': TaskStatus.FAILED.value,
+        }
+        return status_map.get(normalized, status_value or TaskStatus.UNKNOWN.value)
+
+    def _extract_video_data_from_task_result(self, task_result: Dict[str, Any], task_id: str) -> List[dict]:
+        """从任务结果中提取视频列表。"""
+        if not isinstance(task_result, dict):
+            return []
+
+        direct_video_url = task_result.get('video_url') or task_result.get('url')
+        if direct_video_url:
+            return [{'url': direct_video_url}]
+
+        data = task_result.get('data')
+        if isinstance(data, dict):
+            direct_video_url = data.get('video_url') or data.get('url')
+            if direct_video_url:
+                return [{'url': direct_video_url}]
+
+            videos = data.get('videos', [])
+            if videos:
+                return [item if isinstance(item, dict) else {'url': item} for item in videos if item]
+
+            content = data.get('content', {})
+            if isinstance(content, dict):
+                video_url = content.get('video_url') or content.get('url')
+                if video_url:
+                    return [{'url': video_url}]
+
+        if self._is_openai_videos_endpoint(self.base_url):
+            direct_url = task_result.get('video_url') or task_result.get('url') or task_result.get("metadata", {}).get("url")
+            if direct_url:
+                return [{'url': direct_url}]
+            return [{
+                'content_url': self._build_task_content_url(task_id),
+                'download_headers': {'Authorization': self.headers['Authorization']},
+                'original_url': self._build_task_content_url(task_id),
+            }]
+
+        return []
 
     def create_video_task(
         self,
@@ -287,11 +441,6 @@ class VideoGeneratorClient:
         if image_base64 and image_base64 not in normalized_image_base64s:
             normalized_image_base64s.insert(0, image_base64)
 
-        resolved_image_base64s = self._resolve_image_base64s(
-            normalized_image_uris,
-            normalized_image_base64s,
-            timeout,
-        )
         final_prompt = self._build_prompt_text(
             prompt=prompt,
             negative_prompt=negative_prompt,
@@ -299,6 +448,11 @@ class VideoGeneratorClient:
         )
 
         if self._is_chat_completions_endpoint(url):
+            resolved_image_base64s = self._resolve_image_base64s(
+                normalized_image_uris,
+                normalized_image_base64s,
+                timeout,
+            )
             message_content = [
                 {
                     'type': 'text',
@@ -344,6 +498,44 @@ class VideoGeneratorClient:
             except requests.exceptions.RequestException as e:
                 raise Exception(f'创建视频任务失败: {str(e)}')
 
+        if self._is_openai_videos_endpoint(url):
+            image_inputs = self._build_image_inputs_for_openai_videos(
+                normalized_image_uris,
+                normalized_image_base64s,
+                image_mime_type,
+            )
+            extra_metadata = {}
+            if camera_movement_description:
+                extra_metadata['camera_movement_description'] = camera_movement_description
+            if person_generation:
+                extra_metadata['person_generation'] = person_generation
+
+            payload = self._build_openai_videos_payload(
+                model=model,
+                prompt=final_prompt,
+                duration_seconds=duration_seconds,
+                sample_count=sample_count,
+                aspect_ratio=aspect_ratio,
+                generate_audio=generate_audio,
+                resolution=resolution,
+                seed=seed,
+                negative_prompt=negative_prompt,
+                image_inputs=image_inputs,
+                extra_metadata=extra_metadata or None,
+            )
+
+            try:
+                response = requests.post(url, json=payload, headers=self.headers)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                raise Exception(f'创建视频任务失败: {str(e)}')
+
+        resolved_image_base64s = self._resolve_image_base64s(
+            normalized_image_uris,
+            normalized_image_base64s,
+            timeout,
+        )
         payload = {
             'width': 720,
             'height': 1280,
@@ -424,6 +616,7 @@ class VideoGeneratorClient:
             if status is None and "data" in task_info:
                 task_info = task_info["data"]
                 status = task_info.get("status")
+            status = self._normalize_status(status)
             if callback:
                 callback(task_info)
             if status == TaskStatus.SUCCESS.value:
@@ -470,9 +663,7 @@ class VideoGeneratorClient:
                 },
             }
 
-        task_id = task_result
-        if isinstance(task_result, dict):
-            task_id = task_result.get('task_id') or task_result.get('id')
+        task_id = self._extract_task_id(task_result)
 
         result = self.wait_for_completion(
             task_id,
@@ -481,19 +672,7 @@ class VideoGeneratorClient:
             callback=None,
         )
 
-        videos = result.get('data', {}).get('videos', [])
-        if not videos:
-            video = result.get('data', {}).get("content", {}).get("video_url")
-            videos = [video]
-        video_data = []
-        for video in videos:
-            url = video.get('url') if isinstance(video, dict) else video
-            if not url:
-                continue
-            if isinstance(video, dict):
-                video_data.append(video)
-            else:
-                video_data.append({'url': url})
+        video_data = self._extract_video_data_from_task_result(result, task_id)
 
         localized_video_data = self._localize_video_data(video_data, timeout)
         return {

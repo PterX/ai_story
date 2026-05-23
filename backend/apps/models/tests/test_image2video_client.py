@@ -1,3 +1,4 @@
+import tempfile
 from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
@@ -7,8 +8,9 @@ from core.ai_client.volcengine_image2video_client import VolcengineImage2VideoCl
 
 
 class VideoGeneratorClientTestCase(SimpleTestCase):
+    @patch('core.ai_client.image2video_client.VideoGeneratorClient._localize_video_data', side_effect=lambda data, timeout: data)
     @patch('core.ai_client.image2video_client.requests.post')
-    def test_chat_completions_endpoint_extracts_video_url(self, mock_post):
+    def test_chat_completions_endpoint_extracts_video_url(self, mock_post, mock_localize):
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.json.return_value = {
@@ -70,7 +72,6 @@ class VideoGeneratorClientTestCase(SimpleTestCase):
 
         task_result = client.create_video_task(
             prompt='狗狗动起来',
-            image_uri='https://example.com/source.png',
             image_base64='ZmFrZV9pbWFnZV9iYXNlNjQ=',
             camera_movement_description='镜头轻微右移',
             model='video-model',
@@ -128,6 +129,41 @@ class VideoGeneratorClientTestCase(SimpleTestCase):
             mock_post.call_args.kwargs['json']['messages'][0]['content'][1]['image_url']['url'],
             'data:image/jpeg;base64,bG9jYWwtaW1hZ2UtYnl0ZXM=',
         )
+
+    @patch('core.ai_client.image2video_client.requests.post')
+    def test_openai_videos_endpoint_uses_reference_image_payload(self, mock_post):
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            'id': 'task-123',
+            'status': 'queued',
+        }
+        mock_post.return_value = mock_response
+
+        client = VideoGeneratorClient(
+            api_url='https://api.aiflow321.cn/v1/videos',
+            api_token='secret',
+            model='AA-veo31ref-1080p',
+        )
+
+        task_result = client.create_video_task(
+            prompt='a cinematic fox following the same framing',
+            model='AA-veo31ref-1080p',
+            duration_seconds=8,
+            aspect_ratio='16:9',
+            image_uris=['https://example.com/ref.png'],
+        )
+
+        self.assertEqual(task_result['id'], 'task-123')
+        self.assertEqual(mock_post.call_args.args[0], 'https://api.aiflow321.cn/v1/videos')
+        self.assertEqual(mock_post.call_args.kwargs['json'], {
+            'model': 'AA-veo31ref-1080p',
+            'prompt': 'a cinematic fox following the same framing',
+            'aspect_ratio': '16:9',
+            'duration': 8,
+            'reference_mode': 'image',
+            'image': ['https://example.com/ref.png'],
+        })
 
 
 class VolcengineImage2VideoClientTestCase(SimpleTestCase):

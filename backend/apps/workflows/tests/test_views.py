@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.content.models import ContentRewrite, GeneratedImage, Storyboard
@@ -481,3 +482,96 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch('apps.workflows.views.execute_workflow_node_task.delay')
+    def test_execute_selection_enqueues_multiple_nodes(self, mock_delay):
+        second_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='storyboard_node',
+            node_type='storyboard',
+            title='分镜',
+            status='idle',
+        )
+        mock_delay.side_effect = [
+            SimpleNamespace(id='celery-node-task-11'),
+            SimpleNamespace(id='celery-node-task-12'),
+        ]
+
+        response = self.client.post(
+            reverse('workflow-canvas-execute-selection', args=[self.canvas.id]),
+            {
+                'nodes': [
+                    {
+                        'node_id': str(self.node.id),
+                        'input_payload': {
+                            'original_text': '原文',
+                            'instruction': '改成更口语化',
+                            'model': 'test-model',
+                        },
+                        'trigger_source': 'manual',
+                        'idempotency_key': 'node-run-batch-1',
+                    },
+                    {
+                        'node_id': str(second_node.id),
+                        'input_payload': {
+                            'raw_text': '故事文本',
+                            'text': '故事文本',
+                            'model': 'story-model',
+                            'prompt_template_id': 'template-1',
+                        },
+                        'trigger_source': 'manual',
+                        'idempotency_key': 'node-run-batch-2',
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['summary']['total_count'], 2)
+        self.assertEqual(response.data['summary']['queued_count'], 2)
+        self.assertEqual(response.data['summary']['failed_count'], 0)
+        self.assertEqual(len(response.data['runs']), 2)
+        self.assertEqual({item['status'] for item in response.data['runs']}, {'queued'})
+        self.assertEqual(mock_delay.call_count, 2)
+        self.node.refresh_from_db()
+        second_node.refresh_from_db()
+        self.assertEqual(self.node.status, 'queued')
+        self.assertEqual(second_node.status, 'queued')
+
+    @patch('apps.workflows.views.execute_workflow_node_task.delay')
+    def test_execute_selection_rejects_dependent_nodes(self, mock_delay):
+        second_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='image_node',
+            node_type='image_generation',
+            title='图片',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='rewrite-to-image',
+            source_node=self.node,
+            target_node=second_node,
+        )
+
+        response = self.client.post(
+            reverse('workflow-canvas-execute-selection', args=[self.canvas.id]),
+            {
+                'nodes': [
+                    {
+                        'node_id': str(self.node.id),
+                        'input_payload': {'original_text': '原文', 'instruction': '改写', 'model': 'test-model'},
+                    },
+                    {
+                        'node_id': str(second_node.id),
+                        'input_payload': {'prompt': '补充要求', 'model': 'image-model'},
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('依赖关系', str(response.data))
+        mock_delay.assert_not_called()

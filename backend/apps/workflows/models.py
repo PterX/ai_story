@@ -294,6 +294,7 @@ class WorkflowNodeRun(models.Model):
 
     STATUS_CHOICES = [
         ('pending', '待运行'),
+        ('queued', '已排队'),
         ('running', '运行中'),
         ('waiting_callback', '等待回调'),
         ('completed', '已完成'),

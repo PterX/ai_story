@@ -25,6 +25,7 @@ from .models import (
     WorkflowRun,
 )
 from .serializers import (
+    WorkflowCanvasExecuteSelectionSerializer,
     WorkflowBindingSerializer,
     WorkflowCallbackEventSerializer,
     WorkflowCanvasCreateSerializer,
@@ -104,6 +105,62 @@ class WorkflowCanvasViewSet(viewsets.ModelViewSet):
         serializer.save()
         detail = WorkflowCanvasDetailSerializer(canvas.refresh_from_db() or canvas, context=self.get_serializer_context())
         return Response(detail.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def execute_selection(self, request, pk=None):
+        canvas = self.get_object()
+        serializer = WorkflowCanvasExecuteSelectionSerializer(data=request.data, context={'canvas': canvas})
+        serializer.is_valid(raise_exception=True)
+        runs = serializer.save()
+
+        queued_runs = []
+        failed_runs = []
+        for run in runs:
+            try:
+                task = execute_workflow_node_task.delay(str(run.id))
+                run.refresh_from_db()
+                if task and task.id and run.status in {'pending', 'queued'}:
+                    update_fields = ['updated_at']
+                    if not run.external_task_id:
+                        run.external_task_id = task.id
+                        update_fields.append('external_task_id')
+                    if run.status == 'pending':
+                        run.status = 'queued'
+                        update_fields.append('status')
+                    run.save(update_fields=update_fields)
+                    if run.node_id:
+                        WorkflowNode.objects.filter(id=run.node_id).update(
+                            status='queued',
+                            updated_at=timezone.now(),
+                        )
+                queued_runs.append(run)
+            except Exception as exc:
+                refreshed = WorkflowNodeRun.objects.select_related('node').get(id=run.id)
+                refreshed.status = 'failed'
+                refreshed.error_message = str(exc) or '任务入队失败'
+                refreshed.completed_at = timezone.now()
+                refreshed.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+                if refreshed.node_id:
+                    WorkflowNode.objects.filter(id=refreshed.node_id).update(
+                        status='failed',
+                        updated_at=timezone.now(),
+                    )
+                failed_runs.append(refreshed)
+
+        ordered_runs = []
+        failed_run_map = {str(run.id): run for run in failed_runs}
+        for run in runs:
+            ordered_runs.append(failed_run_map.get(str(run.id), run))
+
+        response_serializer = WorkflowNodeRunSerializer(ordered_runs, many=True, context=self.get_serializer_context())
+        return Response({
+            'runs': response_serializer.data,
+            'summary': {
+                'total_count': len(ordered_runs),
+                'queued_count': len([run for run in ordered_runs if run.status == 'queued']),
+                'failed_count': len([run for run in ordered_runs if run.status == 'failed']),
+            },
+        }, status=status.HTTP_201_CREATED)
 
 
 class WorkflowNodeViewSet(viewsets.ModelViewSet):

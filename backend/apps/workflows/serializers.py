@@ -373,17 +373,142 @@ class WorkflowNodeExecuteSerializer(serializers.Serializer):
             node=node,
             node_key=node.node_key,
             node_type=node.node_type,
-            status='running',
+            status='pending',
             sequence=sequence,
             trigger_source=self.validated_data.get('trigger_source') or 'manual',
             input_payload=self.validated_data.get('input_payload') or {},
             upstream_snapshot=self.validated_data.get('upstream_snapshot') or {},
             idempotency_key=(self.validated_data.get('idempotency_key') or '').strip(),
-            started_at=timezone.now(),
         )
-        node.status = 'running'
+        node.status = 'queued'
         node.save(update_fields=['status', 'updated_at'])
         return run
+
+
+class WorkflowSelectionNodeExecuteSerializer(serializers.Serializer):
+    node_id = serializers.UUIDField()
+    input_payload = serializers.JSONField(required=False, default=dict)
+    trigger_source = serializers.CharField(required=False, allow_blank=True, default='manual')
+    upstream_snapshot = serializers.JSONField(required=False, default=dict)
+    idempotency_key = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
+    nodes = WorkflowSelectionNodeExecuteSerializer(many=True)
+
+    SUPPORTED_NODE_TYPES = {'rewrite', 'storyboard', 'image_generation', 'video_generation'}
+    ACTIVE_NODE_STATUSES = {'queued', 'running'}
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        canvas = self.context['canvas']
+        node_items = attrs.get('nodes') or []
+        if len(node_items) < 2:
+            raise serializers.ValidationError({'nodes': '至少选择 2 个节点才能并发执行'})
+
+        node_ids = [str(item['node_id']) for item in node_items]
+        if len(set(node_ids)) != len(node_ids):
+            raise serializers.ValidationError({'nodes': '批量执行中包含重复节点'})
+
+        nodes = list(
+            WorkflowNode.objects
+            .filter(canvas=canvas, id__in=node_ids, is_enabled=True)
+            .only('id', 'canvas_id', 'node_key', 'node_type', 'title', 'status')
+        )
+        node_map = {str(node.id): node for node in nodes}
+        missing_ids = [node_id for node_id in node_ids if node_id not in node_map]
+        if missing_ids:
+            raise serializers.ValidationError({'nodes': f'存在无效节点或节点尚未保存: {", ".join(missing_ids)}'})
+
+        unsupported_nodes = [
+            node.title or node.node_key
+            for node in nodes
+            if node.node_type not in self.SUPPORTED_NODE_TYPES
+        ]
+        if unsupported_nodes:
+            raise serializers.ValidationError({
+                'nodes': f'以下节点暂不支持并发执行: {", ".join(unsupported_nodes)}'
+            })
+
+        active_nodes = [
+            node.title or node.node_key
+            for node in nodes
+            if node.status in self.ACTIVE_NODE_STATUSES
+        ]
+        if active_nodes:
+            raise serializers.ValidationError({
+                'nodes': f'以下节点正在执行中，暂不能重复发起: {", ".join(active_nodes)}'
+            })
+
+        edge_pairs = list(
+            WorkflowEdge.objects
+            .filter(canvas=canvas, is_enabled=True)
+            .values_list('source_node_id', 'target_node_id')
+        )
+        adjacency = {}
+        for source_id, target_id in edge_pairs:
+            adjacency.setdefault(str(source_id), set()).add(str(target_id))
+
+        selected_id_set = set(node_ids)
+        conflicts = []
+        for source_id in node_ids:
+            queue = list(adjacency.get(source_id, ()))
+            visited = set()
+            while queue:
+                current_id = queue.pop(0)
+                if current_id in visited:
+                    continue
+                visited.add(current_id)
+                if current_id in selected_id_set:
+                    source_node = node_map[source_id]
+                    target_node = node_map[current_id]
+                    conflicts.append(
+                        f'{source_node.title or source_node.node_key} -> {target_node.title or target_node.node_key}'
+                    )
+                    break
+                queue.extend(adjacency.get(current_id, ()))
+
+        if conflicts:
+            raise serializers.ValidationError({
+                'nodes': (
+                    '所选节点之间存在依赖关系，当前版本仅支持互不依赖的节点并发执行: '
+                    + '; '.join(conflicts)
+                )
+            })
+
+        attrs['selected_nodes'] = [node_map[node_id] for node_id in node_ids]
+        return attrs
+
+    @transaction.atomic
+    def save(self, **kwargs):
+        node_items = self.validated_data.get('nodes') or []
+        selected_nodes = self.validated_data.get('selected_nodes') or []
+        item_map = {
+            str(item['node_id']): item
+            for item in node_items
+        }
+        runs = []
+
+        for node in selected_nodes:
+            item = item_map[str(node.id)]
+            sequence = (node.runs.aggregate(max_seq=Max('sequence')).get('max_seq') or 0) + 1
+            run = WorkflowNodeRun.objects.create(
+                canvas=node.canvas,
+                node=node,
+                node_key=node.node_key,
+                node_type=node.node_type,
+                status='pending',
+                sequence=sequence,
+                trigger_source=item.get('trigger_source') or 'manual',
+                input_payload=item.get('input_payload') or {},
+                upstream_snapshot=item.get('upstream_snapshot') or {},
+                idempotency_key=(item.get('idempotency_key') or '').strip(),
+            )
+            node.status = 'queued'
+            node.save(update_fields=['status', 'updated_at'])
+            runs.append(run)
+
+        return runs
 
 
 class WorkflowNodeApplyResultSerializer(serializers.Serializer):

@@ -396,7 +396,7 @@ class WorkflowSelectionNodeExecuteSerializer(serializers.Serializer):
 class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
     nodes = WorkflowSelectionNodeExecuteSerializer(many=True)
 
-    SUPPORTED_NODE_TYPES = {'rewrite', 'storyboard', 'image_generation', 'video_generation'}
+    SUPPORTED_NODE_TYPES = {'rewrite', 'asset_extraction', 'storyboard', 'image_generation', 'video_generation'}
     ACTIVE_NODE_STATUSES = {'queued', 'running'}
 
     def validate(self, attrs):

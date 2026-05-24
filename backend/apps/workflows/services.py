@@ -25,6 +25,13 @@ def _storyboard_items(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     return []
 
 
+def _asset_items(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    items = payload.get('items')
+    if isinstance(items, list):
+        return [item for item in items if isinstance(item, dict)]
+    return []
+
+
 def can_auto_apply_workflow_node_result(node_run: WorkflowNodeRun) -> bool:
     """判断当前节点结果是否满足 ai_story 领域回填的最小结构。"""
     payload = _payload_dict(node_run)
@@ -32,6 +39,9 @@ def can_auto_apply_workflow_node_result(node_run: WorkflowNodeRun) -> bool:
 
     if node_type == 'rewrite':
         return bool(payload.get('rewritten_text'))
+
+    if node_type == 'asset_extraction':
+        return bool(_asset_items(payload))
 
     if node_type in {'storyboard', 'camera_movement', 'image_generation', 'video_generation'}:
         return bool(_storyboard_items(payload))
@@ -323,6 +333,30 @@ def apply_workflow_node_result(node_run: WorkflowNodeRun) -> Dict[str, Any]:
             defaults={'target_id': str(rewrite.id), 'metadata': {}},
         )
         return {'node_type': node_type, 'rewrite_id': str(rewrite.id)}
+
+    if node_type == 'asset_extraction':
+        items = _asset_items(payload)
+        if not items:
+            raise ValueError('asset_extraction 节点缺少 items')
+        _mark_stage(project, 'asset_extraction', output_data={
+            'source_text': payload.get('source_text') or payload.get('raw_text') or '',
+            'source_type': payload.get('source_type') or 'manual',
+            'summary': payload.get('summary') or '',
+            'items': items,
+            'raw_text': payload.get('text') or '',
+            'prompt_template_id': payload.get('prompt_template_id') or '',
+            'prompt_template_name': payload.get('prompt_template_name') or '',
+        })
+        WorkflowBinding.objects.update_or_create(
+            workflow_run=node_run.workflow_run,
+            canvas=node_run.canvas,
+            node=node_run.node,
+            node_run=node_run,
+            binding_type='stage',
+            target_key='asset_extraction',
+            defaults={'target_id': str(project.id), 'metadata': {'items_count': len(items)}},
+        )
+        return {'node_type': node_type, 'items_count': len(items)}
 
     if node_type == 'storyboard':
         storyboards = _storyboard_items(payload)

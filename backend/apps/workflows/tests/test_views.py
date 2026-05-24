@@ -198,6 +198,42 @@ class WorkflowNodeApplyAPITestCase(APITestCase):
         self.assertEqual(images.count(), 1)
         self.assertEqual(images.first().image_url, 'https://example.com/1.png')
 
+    def test_apply_asset_extraction_stage_output(self):
+        asset_run = WorkflowNodeRun.objects.create(
+            workflow_run=self.workflow_run,
+            canvas=self.canvas,
+            node=self.storyboard_node_model,
+            node_key='asset_node',
+            node_type='asset_extraction',
+            normalized_output={
+                'source_text': '故事文本',
+                'source_type': 'manual',
+                'summary': '抽取到角色和场景',
+                'items': [
+                    {
+                        'temp_id': 'item_1',
+                        'key': 'hero',
+                        'label': '主角',
+                        'group': '角色',
+                        'variable_type': 'image',
+                        'value': '',
+                        'confidence': 0.9,
+                        'match_status': 'unmatched',
+                        'candidates': [],
+                        'selected_asset_id': None,
+                        'selected_action': None,
+                    }
+                ],
+            },
+        )
+
+        response = self.client.post(reverse('workflow-node-run-apply', args=[asset_run.id]), {}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        stage = ProjectStage.objects.get(project=self.project, stage_type='asset_extraction')
+        self.assertEqual(stage.output_data['summary'], '抽取到角色和场景')
+        self.assertEqual(len(stage.output_data['items']), 1)
+        self.assertEqual(stage.output_data['items'][0]['key'], 'hero')
+
 
 class WorkflowInvalidationAPITestCase(APITestCase):
     def setUp(self):
@@ -568,6 +604,41 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(response.data['summary']['failed_count'], 0)
         self.assertEqual(len(response.data['runs']), 1)
         self.assertEqual(response.data['runs'][0]['status'], 'queued')
+        mock_delay.assert_called_once()
+
+    @patch('apps.workflows.views.execute_workflow_node_task.delay')
+    def test_execute_selection_accepts_asset_extraction_node(self, mock_delay):
+        asset_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='asset_node',
+            node_type='asset_extraction',
+            title='资产抽取',
+            status='idle',
+        )
+        mock_delay.return_value = SimpleNamespace(id='celery-node-task-asset')
+
+        response = self.client.post(
+            reverse('workflow-canvas-execute-selection', args=[self.canvas.id]),
+            {
+                'nodes': [
+                    {
+                        'node_id': str(asset_node.id),
+                        'input_payload': {
+                            'raw_text': '故事文本',
+                            'text': '故事文本',
+                            'model': 'asset-model',
+                            'prompt_template_id': 'template-asset-1',
+                        },
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['summary']['queued_count'], 1)
+        asset_node.refresh_from_db()
+        self.assertEqual(asset_node.status, 'queued')
         mock_delay.assert_called_once()
 
     @patch('apps.workflows.views.execute_workflow_node_task.delay')

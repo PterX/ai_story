@@ -36,6 +36,19 @@ class Text2ImageRequest:
 
     @property
     def size(self) -> str:
+        if self.aspect_ratio:
+            try:
+                w_ratio, h_ratio = map(int, self.aspect_ratio.split(':'))
+                max_dim = 1024
+                if w_ratio >= h_ratio:
+                    w = max_dim
+                    h = max(64, int(max_dim * h_ratio / w_ratio) // 8 * 8)
+                else:
+                    h = max_dim
+                    w = max(64, int(max_dim * w_ratio / h_ratio) // 8 * 8)
+                return f"{w}x{h}"
+            except (ValueError, ZeroDivisionError):
+                pass
         if self.width and self.height:
             return f"{self.width}x{self.height}"
         return ""

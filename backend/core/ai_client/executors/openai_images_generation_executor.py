@@ -65,7 +65,7 @@ class OpenAIImagesGenerationExecutor(BaseText2ImageClient):
         request_url = api_url or self.api_url
         request_key = api_key or self.api_key
         request_model = model_name or self.model_name
-        timeout = int(request.extra.get('timeout') or self.config.get('timeout', 60))
+        timeout = int(request.extra.get('timeout') or self.config.get('timeout', 180))
 
         payload: Dict[str, Any] = {
             'model': request_model,

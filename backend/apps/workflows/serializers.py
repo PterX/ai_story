@@ -403,8 +403,8 @@ class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
         attrs = super().validate(attrs)
         canvas = self.context['canvas']
         node_items = attrs.get('nodes') or []
-        if len(node_items) < 2:
-            raise serializers.ValidationError({'nodes': '至少选择 2 个节点才能并发执行'})
+        if len(node_items) < 1:
+            raise serializers.ValidationError({'nodes': '至少选择 1 个节点才能执行'})
 
         node_ids = [str(item['node_id']) for item in node_items]
         if len(set(node_ids)) != len(node_ids):

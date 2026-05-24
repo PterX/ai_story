@@ -30,7 +30,7 @@ class ModelProvider(models.Model):
     TEXT2IMAGE_EXECUTORS = [
         ('core.ai_client.executors.openai_images_generation_executor.OpenAIImagesGenerationExecutor', 'OpenAI Images Generations 执行器'),
         ('core.ai_client.executors.chat_completions_image_executor.ChatCompletionsImageExecutor', 'Chat Completions 图片执行器'),
-        ('core.ai_client.text2image_client.Text2ImageClient', '兼容文生图客户端（旧版）'),
+        # ('core.ai_client.text2image_client.Text2ImageClient', '兼容文生图客户端（旧版）'),
         ('core.ai_client.comfyui_client.ComfyUIClient', 'ComfyUI客户端'),
         ('core.ai_client.mock_text2image_client.MockText2ImageClient', 'Mock 文生图客户端（测试用）'),
     ]

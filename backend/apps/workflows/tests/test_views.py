@@ -540,6 +540,37 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(second_node.status, 'queued')
 
     @patch('apps.workflows.views.execute_workflow_node_task.delay')
+    def test_execute_selection_accepts_single_node_batch(self, mock_delay):
+        mock_delay.return_value = SimpleNamespace(id='celery-node-task-single')
+
+        response = self.client.post(
+            reverse('workflow-canvas-execute-selection', args=[self.canvas.id]),
+            {
+                'nodes': [
+                    {
+                        'node_id': str(self.node.id),
+                        'input_payload': {
+                            'original_text': '原文',
+                            'instruction': '改成更口语化',
+                            'model': 'test-model',
+                        },
+                        'trigger_source': 'manual',
+                        'idempotency_key': 'node-run-single-batch',
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['summary']['total_count'], 1)
+        self.assertEqual(response.data['summary']['queued_count'], 1)
+        self.assertEqual(response.data['summary']['failed_count'], 0)
+        self.assertEqual(len(response.data['runs']), 1)
+        self.assertEqual(response.data['runs'][0]['status'], 'queued')
+        mock_delay.assert_called_once()
+
+    @patch('apps.workflows.views.execute_workflow_node_task.delay')
     def test_execute_selection_rejects_dependent_nodes(self, mock_delay):
         second_node = WorkflowNode.objects.create(
             canvas=self.canvas,

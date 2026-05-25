@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
@@ -382,6 +384,130 @@ class WorkflowInvalidationAPITestCase(APITestCase):
         self.node_c.refresh_from_db()
         self.assertEqual(self.node_b.status, 'stale')
         self.assertEqual(self.node_c.status, 'dirty')
+
+    def test_graph_update_can_persist_new_split_child_nodes_without_edges(self):
+        new_child_id = uuid.uuid4()
+
+        response = self.client.patch(
+            reverse('workflow-canvas-graph', args=[self.canvas.id]),
+            {
+                'nodes': [
+                    {
+                        'id': str(self.node_a.id),
+                        'canvas': str(self.canvas.id),
+                        'node_key': 'node_a',
+                        'node_type': 'rewrite',
+                        'title': 'A',
+                        'status': 'completed',
+                        'position_x': 0,
+                        'position_y': 0,
+                        'width': 320,
+                        'height': 180,
+                        'config_data': {'prompt': 'v1'},
+                        'input_mapping': {},
+                        'output_schema': {},
+                        'latest_output': {},
+                        'is_enabled': True,
+                    },
+                    {
+                        'id': str(self.node_b.id),
+                        'canvas': str(self.canvas.id),
+                        'node_key': 'node_b',
+                        'node_type': 'storyboard',
+                        'title': 'B',
+                        'status': 'completed',
+                        'position_x': 320,
+                        'position_y': 0,
+                        'width': 320,
+                        'height': 180,
+                        'config_data': {},
+                        'input_mapping': {},
+                        'output_schema': {},
+                        'latest_output': {},
+                        'is_enabled': True,
+                    },
+                    {
+                        'id': str(self.node_c.id),
+                        'canvas': str(self.canvas.id),
+                        'node_key': 'node_c',
+                        'node_type': 'image_generation',
+                        'title': 'C',
+                        'status': 'idle',
+                        'position_x': 640,
+                        'position_y': 0,
+                        'width': 320,
+                        'height': 180,
+                        'config_data': {},
+                        'input_mapping': {},
+                        'output_schema': {},
+                        'latest_output': {},
+                        'is_enabled': True,
+                    },
+                    {
+                        'id': str(new_child_id),
+                        'canvas': str(self.canvas.id),
+                        'node_key': 'text:split-child',
+                        'node_type': 'rewrite',
+                        'title': 'Split Child',
+                        'status': 'dirty',
+                        'position_x': 840,
+                        'position_y': 120,
+                        'width': 400,
+                        'height': 250,
+                        'config_data': {
+                            'label': '分镜 1',
+                            'type': 'text',
+                            'text': 'child prompt',
+                            'prompt': '',
+                        },
+                        'input_mapping': {},
+                        'output_schema': {},
+                        'latest_output': {
+                            'text': 'child prompt',
+                            'rewritten_text': 'child prompt',
+                            'prompt': '',
+                            'model': '',
+                            'multiplier': '1x',
+                        },
+                        'is_enabled': True,
+                    },
+                ],
+                'edges': [
+                    {
+                        'id': str(self.canvas.edges.get(edge_key='edge-a-b').id),
+                        'canvas': str(self.canvas.id),
+                        'edge_key': 'edge-a-b',
+                        'source_node': str(self.node_a.id),
+                        'target_node': str(self.node_b.id),
+                        'source_handle': '',
+                        'target_handle': '',
+                        'metadata': {},
+                        'is_enabled': True,
+                    },
+                    {
+                        'id': str(self.canvas.edges.get(edge_key='edge-b-c').id),
+                        'canvas': str(self.canvas.id),
+                        'edge_key': 'edge-b-c',
+                        'source_node': str(self.node_b.id),
+                        'target_node': str(self.node_c.id),
+                        'source_handle': '',
+                        'target_handle': '',
+                        'metadata': {},
+                        'is_enabled': True,
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            WorkflowNode.objects.filter(
+                canvas=self.canvas,
+                id=new_child_id,
+                node_key='text:split-child',
+            ).exists()
+        )
 
     def test_callback_completion_marks_downstream_nodes_stale_or_dirty(self):
         node_run = WorkflowNodeRun.objects.create(

@@ -96,6 +96,8 @@ class ChatCompletionsImageExecutor(BaseText2ImageClient):
             payload['steps'] = request.extra['steps']
         if request.sample_count > 1:
             payload['n'] = request.sample_count
+        if request.size:
+            payload['size'] = request.size
         if request.extra.get('response_format'):
             payload['response_format'] = request.extra['response_format']
         if request.extra.get('modalities'):

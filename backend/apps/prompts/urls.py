@@ -5,6 +5,7 @@ from .views import (
     PromptTemplateSetViewSet,
     PromptTemplateViewSet,
     GlobalVariableViewSet,
+    PromptSnippetViewSet,
     PromptDebugSessionViewSet,
     PromptDebugRunViewSet,
     PromptDebugArtifactViewSet,
@@ -14,6 +15,7 @@ router = DefaultRouter()
 router.register(r'sets', PromptTemplateSetViewSet, basename='prompttemplateset')
 router.register(r'templates', PromptTemplateViewSet, basename='prompttemplate')
 router.register(r'variables', GlobalVariableViewSet, basename='globalvariable')
+router.register(r'snippets', PromptSnippetViewSet, basename='promptsnippet')
 router.register(r'debug-sessions', PromptDebugSessionViewSet, basename='promptdebugsession')
 router.register(r'debug-runs', PromptDebugRunViewSet, basename='promptdebugrun')
 router.register(r'debug-artifacts', PromptDebugArtifactViewSet, basename='promptdebugartifact')

@@ -9,6 +9,7 @@ from .models import (
     PromptTemplateSet,
     PromptTemplate,
     GlobalVariable,
+    PromptSnippet,
     PromptDebugSession,
     PromptDebugRun,
     PromptDebugArtifact,
@@ -517,6 +518,58 @@ class GlobalVariableBatchSerializer(serializers.Serializer):
                 raise serializers.ValidationError('每个变量必须包含 key 和 value 字段')
 
         return value
+
+
+class PromptSnippetSerializer(serializers.ModelSerializer):
+    """快捷提示词序列化器"""
+
+    created_by = UserSerializer(read_only=True)
+    node_type_display = serializers.CharField(source='get_node_type_display', read_only=True)
+    apply_mode_display = serializers.CharField(source='get_apply_mode_display', read_only=True)
+
+    class Meta:
+        model = PromptSnippet
+        fields = [
+            'id', 'name', 'content',
+            'node_type', 'node_type_display',
+            'apply_mode', 'apply_mode_display',
+            'category', 'is_favorite', 'is_active', 'sort_order',
+            'created_by', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+    def validate_name(self, value):
+        normalized = str(value or '').strip()
+        if not normalized:
+            raise serializers.ValidationError('名称不能为空')
+        return normalized
+
+    def validate_content(self, value):
+        normalized = str(value or '').strip()
+        if not normalized:
+            raise serializers.ValidationError('提示词内容不能为空')
+        return normalized
+
+    def create(self, validated_data):
+        validated_data['created_by'] = self.context['request'].user
+        return super().create(validated_data)
+
+
+class PromptSnippetListSerializer(serializers.ModelSerializer):
+    """快捷提示词列表序列化器"""
+
+    node_type_display = serializers.CharField(source='get_node_type_display', read_only=True)
+    apply_mode_display = serializers.CharField(source='get_apply_mode_display', read_only=True)
+
+    class Meta:
+        model = PromptSnippet
+        fields = [
+            'id', 'name', 'content',
+            'node_type', 'node_type_display',
+            'apply_mode', 'apply_mode_display',
+            'category', 'is_favorite', 'is_active', 'sort_order',
+            'updated_at'
+        ]
 
 
 class PromptDebugArtifactSerializer(serializers.ModelSerializer):

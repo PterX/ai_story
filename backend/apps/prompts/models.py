@@ -256,6 +256,56 @@ class GlobalVariable(models.Model):
         return variables
 
 
+class PromptSnippet(models.Model):
+    """
+    快捷提示词片段
+    职责: 为节点输入框提供可复用的轻量提示词指令
+    """
+
+    NODE_TYPES = [
+        ('text', '文本节点'),
+        ('image', '图片节点'),
+        ('video', '视频节点'),
+        ('all', '全部节点'),
+    ]
+
+    APPLY_MODES = [
+        ('append', '追加'),
+        ('replace', '替换'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField('名称', max_length=255)
+    content = models.TextField('提示词内容')
+    node_type = models.CharField('节点类型', max_length=20, choices=NODE_TYPES, default='all')
+    apply_mode = models.CharField('应用方式', max_length=20, choices=APPLY_MODES, default='append')
+    category = models.CharField('分类', max_length=100, blank=True, default='')
+    is_favorite = models.BooleanField('是否收藏', default=False)
+    is_active = models.BooleanField('是否启用', default=True)
+    sort_order = models.IntegerField('排序', default=0)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='prompt_snippets',
+        verbose_name='创建者'
+    )
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        db_table = 'prompt_snippets'
+        verbose_name = '快捷提示词'
+        verbose_name_plural = '快捷提示词'
+        ordering = ['-is_favorite', 'sort_order', '-updated_at']
+        indexes = [
+            models.Index(fields=['created_by', 'node_type', 'is_active']),
+            models.Index(fields=['created_by', 'category', 'is_active']),
+        ]
+
+    def __str__(self):
+        return f'{self.name} ({self.get_node_type_display()})'
+
+
 class PromptDebugSession(models.Model):
     """
     提示词调试会话

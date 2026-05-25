@@ -11,6 +11,7 @@ from core.ai_client.base import AIResponse
 from core.ai_client.factory import create_ai_client
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
+from core.services.multi_grid_image_service import MultiGridImageService
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -838,6 +839,43 @@ def _execute_asset_extraction(node_run: WorkflowNodeRun, input_payload: Dict[str
 
 
 def _execute_image_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    operation = str(input_payload.get('operation') or '').strip().lower()
+    if operation == 'grid_split':
+        source_image_url = str(
+            input_payload.get('source_image_url')
+            or input_payload.get('image_url')
+            or input_payload.get('image')
+            or ''
+        ).strip()
+        grid_rows = _parse_int(input_payload.get('grid_rows'), 0) or 0
+        grid_cols = _parse_int(input_payload.get('grid_cols'), 0) or 0
+
+        if not source_image_url:
+            raise RuntimeError('缺少可切割的图片地址')
+        if grid_rows <= 0 or grid_cols <= 0:
+            raise RuntimeError('缺少有效的宫格配置')
+
+        split_result = MultiGridImageService.split_image(
+            image_url=source_image_url,
+            grid_rows=grid_rows,
+            grid_cols=grid_cols,
+            tile_gap=0,
+            outer_padding=0,
+        )
+
+        normalized_output = {
+            'operation': 'grid_split',
+            'imageUrl': source_image_url,
+            'image_url': source_image_url,
+            'grid_rows': split_result['grid_rows'],
+            'grid_cols': split_result['grid_cols'],
+            'tiles': split_result['tiles'],
+        }
+        return {
+            'output_payload': split_result,
+            'normalized_output': normalized_output,
+        }
+
     context = _build_image_context(input_payload)
     if not context['prompt']:
         raise RuntimeError('prompt 不能为空')

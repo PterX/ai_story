@@ -1,6 +1,7 @@
 """改写节点执行逻辑。"""
 
 import base64
+import json
 import mimetypes
 import time
 import uuid
@@ -11,8 +12,6 @@ import requests
 from django.conf import settings
 
 from apps.ai_proxy.views import _build_provider_payload, _pick_provider
-
-from .response_helpers import extract_assistant_text
 
 DEFAULT_REWRITE_SYSTEM_PROMPT = (
     '你是专业的中文剧本编辑。请基于用户提供的原始内容和修改要求，'
@@ -75,8 +74,6 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     upstream_video_urls = _ensure_url_list(input_payload.get('upstream_video_urls'))
     instruction = (input_payload.get('instruction') or '').strip()
 
-    if not original_text:
-        raise RuntimeError('缺少 original_text')
     if not instruction:
         raise RuntimeError('缺少 instruction')
 
@@ -89,11 +86,16 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
             + '\n'.join(upstream_video_urls)
             + '\n请结合这些视频内容进行参考。'
         )
-    prompt_sections.append(
-        f'原始内容：\n{original_text}\n\n'
-        f'修改要求：\n{instruction}\n\n'
-        '请基于原始内容输出修改建议或改写结果。'
-    )
+    if original_text:
+        prompt_sections.append(
+            f'原始内容：\n{original_text}\n\n'
+            f'修改要求：\n{instruction}\n\n'
+            '请基于原始内容输出修改建议或改写结果。'
+        )
+    else:
+        prompt_sections.append(
+            instruction
+        )
     prompt_text = '\n\n'.join(section for section in prompt_sections if section)
 
     if upstream_image_urls:
@@ -129,7 +131,7 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'messages': messages,
         'temperature': input_payload.get('temperature', 0.7),
         'max_tokens': provider.max_tokens,
-        'stream': False,
+        'stream': True,
     }
     headers = {
         'Authorization': f'Bearer {provider.api_key}',
@@ -141,20 +143,56 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         headers=headers,
         json=payload,
         timeout=provider.timeout,
+        stream=True,
     )
-    latency_ms = int((time.time() - start_time) * 1000)
     if response.status_code != 200:
         raise RuntimeError(f'上游 API 请求失败: {response.status_code}')
-    result = response.json()
-    if 'id' not in result:
-        result['id'] = f'chatcmpl-{uuid.uuid4().hex[:8]}'
-    result.setdefault('model', provider.model_name)
-    result.setdefault('metadata', {})
-    result['metadata'].update({
-        'latency_ms': latency_ms,
-        'provider': _build_provider_payload(provider),
-    })
-    assistant_text = extract_assistant_text(result) or '模型未返回可显示的修改建议'
+
+    # 强制 UTF-8 解码，避免乱码
+    response.encoding = 'utf-8'
+
+    # 流式读取 SSE 响应并拼接完整文本
+    full_text = ''
+    result_id = f'chatcmpl-{uuid.uuid4().hex[:8]}'
+    result_model = provider.model_name
+    for line in response.iter_lines(chunk_size=1, decode_unicode=True):
+        if not line:
+            continue
+        if line.startswith('data: '):
+            data_str = line[6:]
+            if data_str.strip() == '[DONE]':
+                break
+            try:
+                chunk = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+            result_id = chunk.get('id', result_id)
+            result_model = chunk.get('model', result_model)
+            choices = chunk.get('choices') or []
+            if choices:
+                delta = choices[0].get('delta') or {}
+                content = delta.get('content')
+                if content:
+                    full_text += content
+
+    latency_ms = int((time.time() - start_time) * 1000)
+    result = {
+        'id': result_id,
+        'object': 'chat.completion',
+        'created': int(time.time()),
+        'model': result_model,
+        'choices': [{
+            'index': 0,
+            'message': {'role': 'assistant', 'content': full_text},
+            'finish_reason': 'stop',
+        }],
+        'usage': {},
+        'metadata': {
+            'latency_ms': latency_ms,
+            'provider': _build_provider_payload(provider),
+        },
+    }
+    assistant_text = full_text.strip() or '模型未返回可显示的修改建议'
     normalized_output = {
         'text': assistant_text,
         'rewritten_text': assistant_text,

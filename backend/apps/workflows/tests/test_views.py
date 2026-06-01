@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from apps.content.models import ContentRewrite, GeneratedImage, Storyboard
 from apps.projects.models import Project, ProjectStage, Series
+from apps.workflows.node_executors.execute_rewrite import execute_rewrite
 from apps.workflows.models import WorkflowCallbackEvent, WorkflowCanvas, WorkflowEdge, WorkflowNode, WorkflowNodeRun, WorkflowRun
 
 
@@ -602,6 +603,30 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(node_run.external_task_id, 'celery-node-task-1')
         mock_delay.assert_called_once_with(str(node_run.id))
 
+    @patch('apps.workflows.views.execute_workflow_node_task.delay')
+    def test_execute_allows_missing_original_text(self, mock_delay):
+        mock_delay.return_value.id = 'celery-node-task-no-original'
+
+        response = self.client.post(
+            reverse('workflow-node-execute', args=[self.node.id]),
+            {
+                'input_payload': {
+                    'instruction': '直接给出改写建议',
+                    'model': 'test-model',
+                },
+                'trigger_source': 'manual',
+                'idempotency_key': 'node-run-no-original',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['status'], 'queued')
+        node_run = WorkflowNodeRun.objects.get(id=response.data['id'])
+        self.assertEqual(node_run.input_payload.get('instruction'), '直接给出改写建议')
+        self.assertNotIn('original_text', node_run.input_payload)
+        mock_delay.assert_called_once_with(str(node_run.id))
+
     @patch('apps.workflows.views.AsyncResult')
     def test_stream_returns_terminal_event(self, mock_async_result):
         node_run = WorkflowNodeRun.objects.create(
@@ -803,3 +828,40 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('依赖关系', str(response.data))
         mock_delay.assert_not_called()
+
+
+class ExecuteRewriteNodeExecutorTestCase(APITestCase):
+    @patch('apps.workflows.node_executors.execute_rewrite.requests.post')
+    @patch('apps.workflows.node_executors.execute_rewrite._pick_provider')
+    def test_execute_rewrite_allows_missing_original_text(self, mock_pick_provider, mock_post):
+        mock_pick_provider.return_value = SimpleNamespace(
+            model_name='provider-model',
+            timeout=30,
+            max_tokens=1024,
+            api_key='secret',
+            api_url='https://example.com/v1/chat/completions',
+        )
+        mock_post.return_value = SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                'choices': [
+                    {
+                        'message': {
+                            'content': '这是改写建议',
+                        },
+                    },
+                ],
+            },
+        )
+
+        result = execute_rewrite({
+            'instruction': '直接给出改写建议',
+            'model': 'rewrite-model',
+        })
+
+        self.assertEqual(result['normalized_output']['rewritten_text'], '这是改写建议')
+        self.assertEqual(result['normalized_output']['original_text'], '')
+        request_payload = mock_post.call_args.kwargs['json']
+        user_message = request_payload['messages'][1]['content']
+        self.assertIn('修改要求：\n直接给出改写建议', user_message)
+        self.assertNotIn('原始内容：', user_message)

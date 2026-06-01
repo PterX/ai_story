@@ -2,18 +2,18 @@
 
 from typing import Any, Dict
 
+from core.ai_client.factory import create_ai_client
+from core.ai_client.image_service import ImageGenerationService
+from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
+from core.services.multi_grid_image_service import MultiGridImageService
+
 from apps.ai_proxy.views import (
-    _build_provider_payload,
     _ensure_list,
     _parse_float,
     _parse_int,
     _parse_size,
     _pick_provider,
 )
-from core.ai_client.factory import create_ai_client
-from core.ai_client.image_service import ImageGenerationService
-from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
-from core.services.multi_grid_image_service import MultiGridImageService
 
 from .response_helpers import extract_image_url, normalize_image_response
 

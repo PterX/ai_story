@@ -8,6 +8,27 @@ from core.ai_client.volcengine_image2video_client import VolcengineImage2VideoCl
 
 
 class VideoGeneratorClientTestCase(SimpleTestCase):
+    def test_extract_video_data_from_task_result_supports_data_list_urls(self):
+        client = VideoGeneratorClient(
+            api_url='https://api.aiflow321.cn/v1/videos',
+            api_token='secret',
+            model='AA-veo31ref-1080p',
+        )
+
+        result = client._extract_video_data_from_task_result(
+            {
+                'created': 1780301011,
+                'data': [{'url': 'http://xxx'}],
+                'id': 'cgt-20260601160324-w8jcp',
+                'object': 'video.generation',
+                'status': 'completed',
+                'usage': {'completion_tokens': 103818, 'total_tokens': 103818},
+            },
+            task_id='cgt-20260601160324-w8jcp',
+        )
+
+        self.assertEqual(result, [{'url': 'http://xxx'}])
+
     @patch('core.ai_client.image2video_client.VideoGeneratorClient._localize_video_data', side_effect=lambda data, timeout: data)
     @patch('core.ai_client.image2video_client.requests.post')
     def test_chat_completions_endpoint_extracts_video_url(self, mock_post, mock_localize):

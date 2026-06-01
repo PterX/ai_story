@@ -383,6 +383,18 @@ class VideoGeneratorClient:
             return [{'url': direct_video_url}]
 
         data = task_result.get('data')
+        if isinstance(data, list):
+            videos = []
+            for item in data:
+                if isinstance(item, dict):
+                    video_url = item.get('video_url') or item.get('url')
+                    if video_url:
+                        videos.append(item if item.get('url') or not item.get('video_url') else {'url': video_url})
+                elif item:
+                    videos.append({'url': item})
+            if videos:
+                return videos
+
         if isinstance(data, dict):
             direct_video_url = data.get('video_url') or data.get('url')
             if direct_video_url:

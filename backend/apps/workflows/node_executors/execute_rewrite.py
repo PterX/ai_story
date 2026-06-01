@@ -15,14 +15,6 @@ DEFAULT_REWRITE_SYSTEM_PROMPT = (
     '给出清晰、可执行的修改建议或改写结果。'
 )
 
-MULTIPLIER_TOKEN_MAP = {
-    '1x': 1000,
-    '2x': 2000,
-    '3x': 3000,
-    '4x': 4000,
-    '5x': 5000,
-}
-
 
 def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     """执行改写节点，调用 LLM 生成改写结果。"""
@@ -32,29 +24,36 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         raise RuntimeError('没有可用的 LLM 模型提供商，请在 ai_story 后台配置 ModelProvider')
 
     original_text = (input_payload.get('original_text') or '').strip()
+    upstream_text = (input_payload.get('upstream_text') or '').strip()
     instruction = (input_payload.get('instruction') or '').strip()
-    multiplier = input_payload.get('multiplier') or '2x'
 
     if not original_text:
         raise RuntimeError('缺少 original_text')
     if not instruction:
         raise RuntimeError('缺少 instruction')
 
+    messages = [
+        {'role': 'system', 'content': DEFAULT_REWRITE_SYSTEM_PROMPT},
+    ]
+    if upstream_text:
+        messages.append({
+            'role': 'user',
+            'content': f'上游参考内容：\n{upstream_text}',
+        })
+    messages.append({
+        'role': 'user',
+        'content': (
+            f'原始内容：\n{original_text}\n\n'
+            f'修改要求：\n{instruction}\n\n'
+            '请基于原始内容输出修改建议或改写结果。'
+        ),
+    })
+
     payload = {
         'model': provider.model_name,
-        'messages': [
-            {'role': 'system', 'content': DEFAULT_REWRITE_SYSTEM_PROMPT},
-            {
-                'role': 'user',
-                'content': (
-                    f'原始内容：\n{original_text}\n\n'
-                    f'修改要求：\n{instruction}\n\n'
-                    '请基于原始内容输出修改建议或改写结果。'
-                ),
-            },
-        ],
+        'messages': messages,
         'temperature': input_payload.get('temperature', 0.7),
-        'max_tokens': MULTIPLIER_TOKEN_MAP.get(multiplier, MULTIPLIER_TOKEN_MAP['2x']),
+        'max_tokens': provider.max_tokens,
         'stream': False,
     }
     headers = {
@@ -85,10 +84,10 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'text': assistant_text,
         'rewritten_text': assistant_text,
         'original_text': original_text,
+        'upstream_text': upstream_text,
         'instruction': instruction,
         'prompt': instruction,
         'model': model or provider.model_name,
-        'multiplier': multiplier,
         'generation_metadata': {
             'source': 'linknow',
         },

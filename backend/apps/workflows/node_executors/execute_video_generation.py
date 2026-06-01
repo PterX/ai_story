@@ -1,0 +1,86 @@
+"""视频生成节点执行逻辑。"""
+
+import time
+import uuid
+from typing import Any, Dict
+
+from apps.ai_proxy.views import _build_provider_payload, _ensure_list, _parse_int, _pick_provider
+from core.ai_client.factory import create_ai_client
+
+from .response_helpers import extract_video_url, normalize_video_result
+
+
+def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """执行视频生成节点，调用视频模型从图片生成视频。"""
+    prompt = input_payload.get('prompt', '')
+    model = input_payload.get('model', '')
+    image_inputs = _ensure_list(input_payload.get('image_urls') or input_payload.get('images') or input_payload.get('source_images'))
+    image_input = input_payload.get('image_url') or input_payload.get('image')
+    if image_input and image_input not in image_inputs:
+        image_inputs.insert(0, image_input)
+    image_base64 = input_payload.get('image_base64')
+    image_base64s = _ensure_list(input_payload.get('image_base64s'))
+
+    if not prompt:
+        raise RuntimeError('prompt 不能为空')
+    if not image_inputs and not image_base64 and not image_base64s:
+        raise RuntimeError('缺少可用于生成视频的图片输入')
+
+    provider = _pick_provider('image2video', model)
+    if not provider:
+        raise RuntimeError('没有可用的视频模型提供商')
+
+    client = create_ai_client(provider)
+    raw_result = client._generate_video(
+        prompt=prompt,
+        model=provider.model_name,
+        image_uri=image_inputs[0] if image_inputs else '',
+        image_uris=image_inputs,
+        image_base64=image_base64,
+        image_base64s=image_base64s,
+        image_mime_type=input_payload.get('image_mime_type', 'image/jpeg'),
+        duration_seconds=_parse_int(input_payload.get('duration_seconds'), _parse_int(input_payload.get('duration'), 5)) or 5,
+        sample_count=_parse_int(input_payload.get('sample_count'), _parse_int(input_payload.get('n'), 1)) or 1,
+        aspect_ratio=input_payload.get('aspect_ratio') or input_payload.get('ratio') or '16:9',
+        resolution=input_payload.get('resolution'),
+        seed=_parse_int(input_payload.get('seed')),
+        negative_prompt=input_payload.get('negative_prompt'),
+        generate_audio=input_payload.get('generate_audio', True),
+        camera_movement_description=(
+            input_payload.get('camera_movement_description')
+            or input_payload.get('cameraMovementDescription')
+            or ''
+        ),
+    )
+    result = normalize_video_result(raw_result)
+    if not result['success']:
+        raise RuntimeError(result['error'] or '视频生成失败')
+
+    output_payload = {
+        'id': f'vidgen-{uuid.uuid4().hex[:8]}',
+        'object': 'list',
+        'created': int(time.time()),
+        'model': provider.model_name,
+        'provider': _build_provider_payload(provider),
+        'data': result['data'],
+        'metadata': result['metadata'],
+    }
+    video_url = extract_video_url(output_payload)
+    if not video_url:
+        raise RuntimeError('模型未返回可用视频地址')
+
+    normalized_output = {
+        'videoUrl': video_url,
+        'video_url': video_url,
+        'prompt': prompt,
+        'model': model or provider.model_name,
+        'duration': input_payload.get('duration') or '5s',
+        'aspectRatio': input_payload.get('aspect_ratio') or input_payload.get('aspectRatio') or '16:9',
+        'resolution': input_payload.get('resolution') or '720p',
+        'image_urls': image_inputs,
+        'text': input_payload.get('text') or '',
+    }
+    return {
+        'output_payload': output_payload,
+        'normalized_output': normalized_output,
+    }

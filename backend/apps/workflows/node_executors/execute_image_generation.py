@@ -165,6 +165,7 @@ def execute_image_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'prompt': context['prompt'],
         'model': context['model'] or provider.model_name,
         'scale': input_payload.get('scale') or '1x',
+        'resolution': context['extra'].get('resolution') or input_payload.get('resolution') or '2k',
         'source_image_url': (context['reference_images'] or [''])[0] if context['reference_images'] else '',
         'text': input_payload.get('text') or '',
     }

@@ -6,6 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
+_RESOLUTION_LONG_SIDE_MAP = {
+    "1k": 960,
+    "2k": 1920,
+    "4k": 3840,
+}
+
+
 @dataclass
 class GeneratedImageItem:
     """统一的图片结果项。"""
@@ -39,6 +46,21 @@ class Text2ImageRequest:
         if self.aspect_ratio:
             try:
                 w_ratio, h_ratio = map(int, self.aspect_ratio.split(':'))
+                resolution = str((self.extra or {}).get("resolution") or "").strip().lower()
+                long_side = _RESOLUTION_LONG_SIDE_MAP.get(resolution)
+
+                if long_side:
+                    if self.aspect_ratio == "9:16":
+                        w = max(64, int(long_side * w_ratio / h_ratio))
+                        h = long_side
+                    elif w_ratio >= h_ratio:
+                        w = long_side
+                        h = max(64, int(long_side * h_ratio / w_ratio))
+                    else:
+                        h = long_side
+                        w = max(64, int(long_side * w_ratio / h_ratio))
+                    return f"{w}x{h}"
+
                 max_dim = 1024
                 if w_ratio >= h_ratio:
                     w = max_dim

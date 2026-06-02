@@ -22,6 +22,7 @@ from .models import (
     WorkflowEdge,
     WorkflowNode,
     WorkflowNodeRun,
+    WorkflowNodeRunEvent,
     WorkflowRun,
 )
 from .serializers import (
@@ -37,6 +38,7 @@ from .serializers import (
     WorkflowNodeExecuteSerializer,
     WorkflowNodeApplyResultSerializer,
     WorkflowNodeRunCreateSerializer,
+    WorkflowNodeRunEventSerializer,
     WorkflowNodeRunSerializer,
     WorkflowNodeRunUpdateSerializer,
     WorkflowNodeSerializer,
@@ -44,7 +46,7 @@ from .serializers import (
     WorkflowRunDetailSerializer,
     WorkflowRunListSerializer,
 )
-from .services import apply_workflow_node_result
+from .services import apply_workflow_node_result, enqueue_node_run
 from .tasks import execute_workflow_node_task
 
 
@@ -56,6 +58,48 @@ class ServerSentEventRenderer(renderers.BaseRenderer):
 
     def render(self, data, accepted_media_type=None, renderer_context=None):
         return data
+
+
+def build_sse_response(event_iterable):
+    response = StreamingHttpResponse(event_iterable, content_type='text/event-stream; charset=utf-8')
+    response['Cache-Control'] = 'no-cache, no-transform'
+    response['X-Accel-Buffering'] = 'no'
+    return response
+
+
+def iter_workflow_event_stream(queryset, *, connected_payload, terminal_checker):
+    yield f"data: {json.dumps(connected_payload, ensure_ascii=False)}\n\n"
+    seen_event_ids = set()
+    idle_count = 0
+
+    for _ in range(600):
+        latest_events = list(queryset.order_by('created_at', 'id'))
+        new_events = [event for event in latest_events if str(event.id) not in seen_event_ids]
+
+        changed = bool(new_events)
+        for event in new_events:
+            payload = {
+                'type': event.event_type,
+                'event_id': str(event.id),
+                'workflow_run_id': str(event.workflow_run_id) if event.workflow_run_id else '',
+                'canvas_id': str(event.canvas_id) if event.canvas_id else '',
+                'node_id': str(event.node_id) if event.node_id else '',
+                'node_run_id': str(event.node_run_id) if event.node_run_id else '',
+                'payload': event.payload or {},
+                'created_at': event.created_at.isoformat() if event.created_at else None,
+            }
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            seen_event_ids.add(str(event.id))
+
+        terminal_payload = terminal_checker()
+        if terminal_payload is not None:
+            yield f"data: {json.dumps(terminal_payload, ensure_ascii=False)}\n\n"
+            break
+
+        idle_count = 0 if changed else idle_count + 1
+        time.sleep(3 if idle_count >= 3 else 1)
+
+    yield f"data: {json.dumps({**connected_payload, 'type': 'stream_end'}, ensure_ascii=False)}\n\n"
 
 
 class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
@@ -100,67 +144,69 @@ class WorkflowCanvasViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def graph(self, request, pk=None):
         canvas = self.get_object()
-        serializer = self.get_serializer(data=request.data, context={'canvas': canvas})
+        serializer = self.get_serializer(data=request.data, context={'canvas': canvas, 'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         detail = WorkflowCanvasDetailSerializer(canvas.refresh_from_db() or canvas, context=self.get_serializer_context())
-        return Response(detail.data, status=status.HTTP_200_OK)
+        response_data = dict(detail.data)
+        graph_validation = getattr(serializer, 'validation_result', {'validation_errors': [], 'blocked_nodes': []})
+        response_data['validation_errors'] = graph_validation.get('validation_errors', [])
+        response_data['blocked_nodes'] = graph_validation.get('blocked_nodes', [])
+        return Response(response_data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['post'])
     def execute_selection(self, request, pk=None):
         canvas = self.get_object()
-        serializer = WorkflowCanvasExecuteSelectionSerializer(data=request.data, context={'canvas': canvas})
+        serializer = WorkflowCanvasExecuteSelectionSerializer(data=request.data, context={'canvas': canvas, 'request': request})
         serializer.is_valid(raise_exception=True)
         runs = serializer.save()
-
-        queued_runs = []
-        failed_runs = []
-        for run in runs:
-            try:
-                task = execute_workflow_node_task.delay(str(run.id))
-                run.refresh_from_db()
-                if task and task.id and run.status in {'pending', 'queued'}:
-                    update_fields = ['updated_at']
-                    if not run.external_task_id:
-                        run.external_task_id = task.id
-                        update_fields.append('external_task_id')
-                    if run.status == 'pending':
-                        run.status = 'queued'
-                        update_fields.append('status')
-                    run.save(update_fields=update_fields)
-                    if run.node_id:
-                        WorkflowNode.objects.filter(id=run.node_id).update(
-                            status='queued',
-                            updated_at=timezone.now(),
-                        )
-                queued_runs.append(run)
-            except Exception as exc:
-                refreshed = WorkflowNodeRun.objects.select_related('node').get(id=run.id)
-                refreshed.status = 'failed'
-                refreshed.error_message = str(exc) or '任务入队失败'
-                refreshed.completed_at = timezone.now()
-                refreshed.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
-                if refreshed.node_id:
-                    WorkflowNode.objects.filter(id=refreshed.node_id).update(
-                        status='failed',
-                        updated_at=timezone.now(),
-                    )
-                failed_runs.append(refreshed)
-
-        ordered_runs = []
-        failed_run_map = {str(run.id): run for run in failed_runs}
-        for run in runs:
-            ordered_runs.append(failed_run_map.get(str(run.id), run))
-
-        response_serializer = WorkflowNodeRunSerializer(ordered_runs, many=True, context=self.get_serializer_context())
+        refreshed_runs = list(
+            WorkflowNodeRun.objects
+            .filter(id__in=[run.id for run in runs])
+            .select_related('workflow_run', 'canvas', 'node')
+            .prefetch_related('bindings')
+            .order_by('created_at')
+        )
+        response_serializer = WorkflowNodeRunSerializer(refreshed_runs, many=True, context=self.get_serializer_context())
         return Response({
             'runs': response_serializer.data,
             'summary': {
-                'total_count': len(ordered_runs),
-                'queued_count': len([run for run in ordered_runs if run.status == 'queued']),
-                'failed_count': len([run for run in ordered_runs if run.status == 'failed']),
+                'total_count': len(refreshed_runs),
+                'queued_count': len([run for run in refreshed_runs if run.status == 'queued']),
+                'failed_count': len([run for run in refreshed_runs if run.status == 'failed']),
+                'blocked_count': len([run for run in refreshed_runs if run.status == 'blocked']),
+                'pending_count': len([run for run in refreshed_runs if run.status == 'pending']),
             },
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'], renderer_classes=[ServerSentEventRenderer])
+    def stream(self, request, pk=None):
+        canvas = self.get_object()
+        queryset = WorkflowNodeRunEvent.objects.filter(canvas=canvas)
+
+        def terminal_checker():
+            latest_run = (
+                WorkflowRun.objects
+                .filter(node_runs__canvas=canvas)
+                .order_by('-created_at')
+                .distinct()
+                .first()
+            )
+            if not latest_run or latest_run.status not in {'completed', 'failed', 'cancelled'}:
+                return None
+            return {
+                'type': 'pipeline_done' if latest_run.status == 'completed' else 'pipeline_error',
+                'canvas_id': str(canvas.id),
+                'workflow_run_id': str(latest_run.id),
+                'status': latest_run.status,
+                'error': latest_run.error_message or '',
+            }
+
+        return build_sse_response(iter_workflow_event_stream(
+            queryset,
+            connected_payload={'canvas_id': str(canvas.id), 'type': 'connected'},
+            terminal_checker=terminal_checker,
+        ))
 
 
 class WorkflowNodeViewSet(viewsets.ModelViewSet):
@@ -181,22 +227,8 @@ class WorkflowNodeViewSet(viewsets.ModelViewSet):
         serializer = WorkflowNodeExecuteSerializer(data=request.data, context={'node': node})
         serializer.is_valid(raise_exception=True)
         run = serializer.save()
-        task = execute_workflow_node_task.delay(str(run.id))
+        enqueue_node_run(run)
         run.refresh_from_db()
-        node.refresh_from_db()
-        if task and task.id and run.status in {'pending', 'running'}:
-            update_fields = ['updated_at']
-            if not run.external_task_id:
-                run.external_task_id = task.id
-                update_fields.append('external_task_id')
-            if run.status == 'pending':
-                run.status = 'queued'
-                update_fields.append('status')
-            run.save(update_fields=update_fields)
-            if node.status == 'running':
-                node.status = 'queued'
-                node.save(update_fields=['status', 'updated_at'])
-            run.refresh_from_db()
         response = WorkflowNodeRunSerializer(run, context=self.get_serializer_context())
         return Response(response.data, status=status.HTTP_201_CREATED)
 
@@ -280,6 +312,29 @@ class WorkflowRunViewSet(viewsets.ModelViewSet):
             started_at=None,
         )
         return Response({'message': '工作流已重置为待运行', 'workflow_run_id': str(workflow_run.id)})
+
+    @action(detail=True, methods=['get'], renderer_classes=[ServerSentEventRenderer])
+    def stream(self, request, pk=None):
+        workflow_run = self.get_object()
+        queryset = WorkflowNodeRunEvent.objects.filter(workflow_run=workflow_run)
+
+        def terminal_checker():
+            refreshed = WorkflowRun.objects.get(id=workflow_run.id)
+            if refreshed.status not in {'completed', 'failed', 'cancelled'}:
+                return None
+            return {
+                'type': 'pipeline_done' if refreshed.status == 'completed' else 'pipeline_error',
+                'workflow_run_id': str(refreshed.id),
+                'canvas_id': '',
+                'status': refreshed.status,
+                'error': refreshed.error_message or '',
+            }
+
+        return build_sse_response(iter_workflow_event_stream(
+            queryset,
+            connected_payload={'workflow_run_id': str(workflow_run.id), 'type': 'connected'},
+            terminal_checker=terminal_checker,
+        ))
 
 
 class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
@@ -405,6 +460,23 @@ class WorkflowBindingViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return (
             WorkflowBinding.objects
+            .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
+            .select_related('workflow_run', 'canvas', 'node', 'node_run')
+            .distinct()
+        )
+
+
+class WorkflowNodeRunEventViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WorkflowNodeRunEventSerializer
+    filter_backends = [DjangoFilterBackend, OrderingFilter]
+    filterset_fields = ['workflow_run', 'canvas', 'node', 'node_run', 'event_type']
+    ordering_fields = ['created_at']
+    ordering = ['created_at']
+
+    def get_queryset(self):
+        return (
+            WorkflowNodeRunEvent.objects
             .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
             .select_related('workflow_run', 'canvas', 'node', 'node_run')
             .distinct()

@@ -13,13 +13,18 @@ from .models import (
     WorkflowEdge,
     WorkflowNode,
     WorkflowNodeRun,
+    WorkflowNodeRunEvent,
     WorkflowRun,
 )
 from .services import (
     apply_workflow_node_result,
     can_auto_apply_workflow_node_result,
     handle_node_run_completed,
+    create_node_run_event,
+    launch_ready_node_runs,
     mark_downstream_nodes_stale,
+    topologically_sort_selected_nodes,
+    validate_workflow_graph,
 )
 
 
@@ -65,6 +70,16 @@ class WorkflowBindingSerializer(serializers.ModelSerializer):
             'metadata', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class WorkflowNodeRunEventSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WorkflowNodeRunEvent
+        fields = [
+            'id', 'workflow_run', 'canvas', 'node', 'node_run',
+            'event_type', 'payload', 'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
 
 
 class WorkflowNodeRunSerializer(serializers.ModelSerializer):
@@ -242,6 +257,14 @@ class WorkflowCanvasGraphSerializer(serializers.Serializer):
             if node_key in node_keys:
                 raise serializers.ValidationError({'nodes': f'重复 node_key: {node_key}'})
             node_keys.add(node_key)
+        validation = validate_workflow_graph(attrs.get('nodes', []), attrs.get('edges', []))
+        if validation['validation_errors']:
+            raise serializers.ValidationError({
+                'validation_errors': validation['validation_errors'],
+                'blocked_nodes': validation['blocked_nodes'],
+            })
+        self.validation_result = validation
+        attrs['graph_validation'] = validation
         return attrs
 
     @transaction.atomic
@@ -382,6 +405,10 @@ class WorkflowNodeExecuteSerializer(serializers.Serializer):
         )
         node.status = 'queued'
         node.save(update_fields=['status', 'updated_at'])
+        create_node_run_event(run, 'run_created', {
+            'trigger_source': run.trigger_source,
+            'sequence': run.sequence,
+        })
         return run
 
 
@@ -397,7 +424,7 @@ class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
     nodes = WorkflowSelectionNodeExecuteSerializer(many=True)
 
     SUPPORTED_NODE_TYPES = {'rewrite', 'asset_extraction', 'storyboard', 'image_generation', 'video_generation', 'audio'}
-    ACTIVE_NODE_STATUSES = {'queued', 'running'}
+    ACTIVE_NODE_STATUSES = {'queued', 'running', 'waiting_callback'}
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -440,59 +467,41 @@ class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
                 'nodes': f'以下节点正在执行中，暂不能重复发起: {", ".join(active_nodes)}'
             })
 
-        edge_pairs = list(
-            WorkflowEdge.objects
-            .filter(canvas=canvas, is_enabled=True)
-            .values_list('source_node_id', 'target_node_id')
-        )
-        adjacency = {}
-        for source_id, target_id in edge_pairs:
-            adjacency.setdefault(str(source_id), set()).add(str(target_id))
-
-        selected_id_set = set(node_ids)
-        conflicts = []
-        for source_id in node_ids:
-            queue = list(adjacency.get(source_id, ()))
-            visited = set()
-            while queue:
-                current_id = queue.pop(0)
-                if current_id in visited:
-                    continue
-                visited.add(current_id)
-                if current_id in selected_id_set:
-                    source_node = node_map[source_id]
-                    target_node = node_map[current_id]
-                    conflicts.append(
-                        f'{source_node.title or source_node.node_key} -> {target_node.title or target_node.node_key}'
-                    )
-                    break
-                queue.extend(adjacency.get(current_id, ()))
-
-        if conflicts:
-            raise serializers.ValidationError({
-                'nodes': (
-                    '所选节点之间存在依赖关系，当前版本仅支持互不依赖的节点并发执行: '
-                    + '; '.join(conflicts)
-                )
-            })
-
         attrs['selected_nodes'] = [node_map[node_id] for node_id in node_ids]
+        try:
+            attrs['ordered_node_ids'] = topologically_sort_selected_nodes(canvas, node_ids)
+        except ValueError as exc:
+            raise serializers.ValidationError({'nodes': str(exc)})
         return attrs
 
     @transaction.atomic
     def save(self, **kwargs):
         node_items = self.validated_data.get('nodes') or []
         selected_nodes = self.validated_data.get('selected_nodes') or []
+        ordered_node_ids = self.validated_data.get('ordered_node_ids') or []
         item_map = {
             str(item['node_id']): item
             for item in node_items
         }
+        request = self.context.get('request')
+        canvas = self.context['canvas']
+        workflow_run = WorkflowRun.objects.create(
+            project=canvas.project,
+            series=canvas.series,
+            definition=canvas.definition,
+            created_by=request.user if request and request.user and request.user.is_authenticated else None,
+            status='pending',
+            trigger_mode='manual',
+        )
         runs = []
+        node_by_id = {str(node.id): node for node in selected_nodes}
 
-        for node in selected_nodes:
+        for node_id in ordered_node_ids:
+            node = node_by_id[node_id]
             item = item_map[str(node.id)]
             sequence = (node.runs.aggregate(max_seq=Max('sequence')).get('max_seq') or 0) + 1
             run = WorkflowNodeRun.objects.create(
+                workflow_run=workflow_run,
                 canvas=node.canvas,
                 node=node,
                 node_key=node.node_key,
@@ -504,10 +513,13 @@ class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
                 upstream_snapshot=item.get('upstream_snapshot') or {},
                 idempotency_key=(item.get('idempotency_key') or '').strip(),
             )
-            node.status = 'queued'
-            node.save(update_fields=['status', 'updated_at'])
+            create_node_run_event(run, 'run_created', {
+                'trigger_source': run.trigger_source,
+                'sequence': run.sequence,
+            })
             runs.append(run)
 
+        launch_ready_node_runs(str(workflow_run.id))
         return runs
 
 
@@ -677,6 +689,11 @@ class WorkflowCallbackEventSerializer(serializers.ModelSerializer):
                     update_fields.append('normalized_output')
                 if update_fields:
                     node_run.save(update_fields=list(dict.fromkeys(update_fields)))
+                    if status_value:
+                        create_node_run_event(node_run, f'run_{status_value}', {
+                            'source': 'callback',
+                            'external_task_id': event.external_task_id or node_run.external_task_id,
+                        })
 
                 if node_run.node:
                     if status_value == 'completed':

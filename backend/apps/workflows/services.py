@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any, Dict, Iterable, List, Optional, Set
 
 from django.db import transaction
@@ -10,7 +11,18 @@ from django.utils import timezone
 from apps.content.models import CameraMovement, ContentRewrite, GeneratedImage, GeneratedVideo, Storyboard
 from apps.projects.models import Project, ProjectStage
 from apps.projects.utils import ensure_project_stages
-from apps.workflows.models import WorkflowBinding, WorkflowEdge, WorkflowNode, WorkflowNodeRun
+from apps.workflows.models import (
+    WorkflowBinding,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowNodeRun,
+    WorkflowNodeRunEvent,
+    WorkflowRun,
+)
+
+
+ACTIVE_NODE_RUN_STATUSES = {'queued', 'running', 'waiting_callback'}
+TERMINAL_NODE_RUN_STATUSES = {'completed', 'failed', 'cancelled', 'blocked'}
 
 
 def _payload_dict(node_run: WorkflowNodeRun) -> Dict[str, Any]:
@@ -84,11 +96,292 @@ def mark_nodes_status(node_ids: Iterable[str | int], status: str) -> None:
     )
 
 
-def mark_downstream_nodes_stale(canvas, source_node_ids: Iterable[str | int], include_sources: bool = False) -> List[str]:
+def create_node_run_event(node_run: WorkflowNodeRun, event_type: str, payload: Optional[Dict[str, Any]] = None) -> WorkflowNodeRunEvent:
+    """记录节点运行事件。"""
+    return WorkflowNodeRunEvent.objects.create(
+        workflow_run=node_run.workflow_run,
+        canvas=node_run.canvas,
+        node=node_run.node,
+        node_run=node_run,
+        event_type=event_type,
+        payload=payload or {},
+    )
+
+
+def validate_workflow_graph(nodes_data: List[Dict[str, Any]], edges_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    """校验画布图结构，当前最小版只处理环和无效边。"""
+    node_refs: Set[str] = set()
+    node_ref_by_key: Dict[str, str] = {}
+    for index, node in enumerate(nodes_data):
+        node_ref = str(node.get('id') or '') or f'node_key:{node.get("node_key") or index}'
+        node_refs.add(node_ref)
+        node_ref_by_key[node.get('node_key') or node_ref] = node_ref
+    errors: List[Dict[str, Any]] = []
+
+    adjacency: Dict[str, Set[str]] = {}
+    indegree: Dict[str, int] = {node_ref: 0 for node_ref in node_refs}
+    enabled_node_ids = {
+        (str(node.get('id') or '') or f'node_key:{node.get("node_key") or index}')
+        for index, node in enumerate(nodes_data)
+        if node.get('is_enabled', True)
+    }
+
+    for edge in edges_data:
+        source_ref = str(edge.get('source_node') or '')
+        target_ref = str(edge.get('target_node') or '')
+        if source_ref not in node_refs or target_ref not in node_refs:
+            errors.append({
+                'code': 'invalid_edge_node',
+                'edge_key': edge.get('edge_key') or '',
+                'message': '连线引用了不存在的节点',
+            })
+            continue
+        if source_ref == target_ref:
+            errors.append({
+                'code': 'self_loop',
+                'edge_key': edge.get('edge_key') or '',
+                'message': '不允许节点连接到自身',
+            })
+            continue
+        if not edge.get('is_enabled', True):
+            continue
+        adjacency.setdefault(source_ref, set()).add(target_ref)
+        indegree[target_ref] = indegree.get(target_ref, 0) + 1
+        indegree.setdefault(source_ref, indegree.get(source_ref, 0))
+
+    queue = deque([node_id for node_id, degree in indegree.items() if degree == 0])
+    visited_count = 0
+    while queue:
+        node_id = queue.popleft()
+        visited_count += 1
+        for target_id in adjacency.get(node_id, set()):
+            indegree[target_id] -= 1
+            if indegree[target_id] == 0:
+                queue.append(target_id)
+
+    if indegree and visited_count != len(indegree):
+        cycle_node_ids = sorted([node_id for node_id, degree in indegree.items() if degree > 0])
+        errors.append({
+            'code': 'cycle_detected',
+            'node_ids': cycle_node_ids,
+            'message': '工作流中存在环，无法执行',
+        })
+
+    blocked_nodes = [
+        {'node_id': node_id, 'reason': 'disabled'}
+        for node_id in sorted(node_refs - enabled_node_ids)
+    ]
+    return {
+        'validation_errors': errors,
+        'blocked_nodes': blocked_nodes,
+    }
+
+
+def get_selected_subgraph(canvas, selected_node_ids: Iterable[str | int]) -> Dict[str, Dict[str, Set[str]]]:
+    """获取所选节点子图的邻接关系。"""
+    selected_ids = {str(node_id) for node_id in selected_node_ids if node_id}
+    adjacency: Dict[str, Set[str]] = {node_id: set() for node_id in selected_ids}
+    reverse_adjacency: Dict[str, Set[str]] = {node_id: set() for node_id in selected_ids}
+
+    edges = WorkflowEdge.objects.filter(
+        canvas=canvas,
+        is_enabled=True,
+        source_node_id__in=selected_ids,
+        target_node_id__in=selected_ids,
+    ).values_list('source_node_id', 'target_node_id')
+    for source_id, target_id in edges:
+        source_id_str = str(source_id)
+        target_id_str = str(target_id)
+        adjacency.setdefault(source_id_str, set()).add(target_id_str)
+        reverse_adjacency.setdefault(target_id_str, set()).add(source_id_str)
+
+    return {
+        'adjacency': adjacency,
+        'reverse_adjacency': reverse_adjacency,
+    }
+
+
+def topologically_sort_selected_nodes(canvas, selected_node_ids: Iterable[str | int]) -> List[str]:
+    """对所选节点做拓扑排序。"""
+    selected_ids = [str(node_id) for node_id in selected_node_ids if node_id]
+    subgraph = get_selected_subgraph(canvas, selected_ids)
+    adjacency = subgraph['adjacency']
+    reverse_adjacency = subgraph['reverse_adjacency']
+    indegree = {
+        node_id: len(reverse_adjacency.get(node_id, set()))
+        for node_id in selected_ids
+    }
+    queue = deque([node_id for node_id in selected_ids if indegree[node_id] == 0])
+    ordered_ids: List[str] = []
+
+    while queue:
+        node_id = queue.popleft()
+        ordered_ids.append(node_id)
+        for target_id in sorted(adjacency.get(node_id, set())):
+            indegree[target_id] -= 1
+            if indegree[target_id] == 0:
+                queue.append(target_id)
+
+    if len(ordered_ids) != len(selected_ids):
+        raise ValueError('所选节点中存在环，无法执行')
+    return ordered_ids
+
+
+def enqueue_node_run(node_run: WorkflowNodeRun):
+    """将节点运行入队。"""
+    from . import views as workflow_views
+
+    task = workflow_views.execute_workflow_node_task.delay(str(node_run.id))
+    task_id = str(getattr(task, 'id', '') or '')
+    node_run.refresh_from_db()
+    if task_id and node_run.status in {'pending', 'queued'}:
+        update_fields = ['updated_at']
+        if not node_run.external_task_id:
+            node_run.external_task_id = task_id
+            update_fields.append('external_task_id')
+        if node_run.status == 'pending':
+            node_run.status = 'queued'
+            update_fields.append('status')
+        node_run.save(update_fields=update_fields)
+        if node_run.node_id:
+            WorkflowNode.objects.filter(id=node_run.node_id).update(
+                status='queued',
+                updated_at=timezone.now(),
+            )
+        create_node_run_event(node_run, 'run_queued', {'task_id': task_id})
+    return task
+
+
+def launch_ready_node_runs(workflow_run_id: str) -> List[WorkflowNodeRun]:
+    """启动当前批次中已经满足执行条件的节点。"""
+    ready_runs = resolve_ready_node_runs(workflow_run_id)
+    launched_runs: List[WorkflowNodeRun] = []
+    for run in ready_runs:
+        enqueue_node_run(run)
+        launched_runs.append(run)
+    sync_workflow_run_status(workflow_run_id)
+    return launched_runs
+
+
+def sync_workflow_run_status(workflow_run_id: str) -> None:
+    """根据节点运行状态同步批次状态。"""
+    workflow_run = WorkflowRun.objects.filter(id=workflow_run_id).first()
+    if not workflow_run:
+        return
+
+    runs = list(WorkflowNodeRun.objects.filter(workflow_run_id=workflow_run_id).only('status', 'node_key'))
+    if not runs:
+        return
+
+    now = timezone.now()
+    statuses = {run.status for run in runs}
+    update_fields = ['updated_at']
+    if any(status in {'running', 'waiting_callback', 'queued'} for status in statuses):
+        workflow_run.status = 'running'
+        workflow_run.started_at = workflow_run.started_at or now
+        update_fields.extend(['status', 'started_at'])
+    elif 'failed' in statuses:
+        workflow_run.status = 'failed'
+        workflow_run.completed_at = now
+        update_fields.extend(['status', 'completed_at'])
+    elif statuses.issubset({'completed', 'blocked'}):
+        workflow_run.status = 'completed'
+        workflow_run.completed_at = now
+        update_fields.extend(['status', 'completed_at'])
+    elif 'cancelled' in statuses and statuses.issubset({'cancelled', 'completed', 'blocked'}):
+        workflow_run.status = 'cancelled'
+        workflow_run.completed_at = now
+        update_fields.extend(['status', 'completed_at'])
+    else:
+        workflow_run.status = 'pending'
+        update_fields.append('status')
+
+    current_run = next((run for run in runs if run.status in ACTIVE_NODE_RUN_STATUSES), None)
+    workflow_run.current_node_key = current_run.node_key if current_run else ''
+    update_fields.append('current_node_key')
+    workflow_run.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def resolve_ready_node_runs(workflow_run_id: str) -> List[WorkflowNodeRun]:
+    """查找当前批次中已满足上游条件的待执行节点。"""
+    node_runs = list(
+        WorkflowNodeRun.objects
+        .select_related('node', 'canvas', 'workflow_run')
+        .filter(workflow_run_id=workflow_run_id)
+    )
+    run_by_node_id = {
+        str(run.node_id): run
+        for run in node_runs
+        if run.node_id
+    }
+    ready_runs: List[WorkflowNodeRun] = []
+
+    for run in node_runs:
+        if run.status != 'pending' or not run.node_id:
+            continue
+        upstream_ids = list(
+            WorkflowEdge.objects
+            .filter(canvas=run.canvas, is_enabled=True, target_node_id=run.node_id)
+            .values_list('source_node_id', flat=True)
+        )
+        upstream_runs = [run_by_node_id.get(str(node_id)) for node_id in upstream_ids if str(node_id) in run_by_node_id]
+        if any(upstream_run and upstream_run.status in ACTIVE_NODE_RUN_STATUSES for upstream_run in upstream_runs):
+            continue
+        if any(upstream_run and upstream_run.status in {'failed', 'cancelled', 'blocked'} for upstream_run in upstream_runs):
+            run.status = 'blocked'
+            run.error_message = '存在失败或被阻断的上游节点'
+            run.completed_at = timezone.now()
+            run.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+            create_node_run_event(run, 'run_blocked', {'reason': 'upstream_failed'})
+            if run.node_id:
+                WorkflowNode.objects.filter(id=run.node_id).update(status='blocked', updated_at=timezone.now())
+            continue
+        if upstream_ids and any(upstream_run is None or upstream_run.status != 'completed' for upstream_run in upstream_runs):
+            continue
+        ready_runs.append(run)
+    return ready_runs
+
+
+def block_downstream_pending_runs(node_run: WorkflowNodeRun, reason: str = 'upstream_failed') -> None:
+    """当节点失败时，阻断同批次下游待执行节点。"""
+    if not node_run.workflow_run_id or not node_run.canvas_id or not node_run.node_id:
+        return
+    downstream_ids = get_downstream_node_ids(node_run.canvas, [node_run.node_id])
+    if not downstream_ids:
+        return
+    pending_runs = list(
+        WorkflowNodeRun.objects
+        .select_related('node')
+        .filter(
+            workflow_run_id=node_run.workflow_run_id,
+            node_id__in=downstream_ids,
+            status='pending',
+        )
+    )
+    now = timezone.now()
+    for pending_run in pending_runs:
+        pending_run.status = 'blocked'
+        pending_run.error_message = '上游节点执行失败，已阻断'
+        pending_run.completed_at = now
+        pending_run.save(update_fields=['status', 'error_message', 'completed_at', 'updated_at'])
+        create_node_run_event(pending_run, 'run_blocked', {'reason': reason, 'upstream_node_run_id': str(node_run.id)})
+        if pending_run.node_id:
+            WorkflowNode.objects.filter(id=pending_run.node_id).update(status='blocked', updated_at=now)
+
+
+def mark_downstream_nodes_stale(
+    canvas,
+    source_node_ids: Iterable[str | int],
+    include_sources: bool = False,
+    exclude_node_ids: Optional[Iterable[str | int]] = None,
+) -> List[str]:
     """将下游节点标记为 stale；未执行过的节点标记为 dirty。"""
     downstream_ids = get_downstream_node_ids(canvas, source_node_ids)
     if include_sources:
         downstream_ids = [*{*downstream_ids, *[str(node_id) for node_id in source_node_ids if node_id]}]
+    excluded_ids = {str(node_id) for node_id in (exclude_node_ids or []) if node_id}
+    if excluded_ids:
+        downstream_ids = [node_id for node_id in downstream_ids if str(node_id) not in excluded_ids]
 
     if not downstream_ids:
         return []
@@ -475,4 +768,13 @@ def handle_node_run_completed(node_run: WorkflowNodeRun, *, latest_output: Optio
     if latest_output is not None:
         updates['latest_output'] = latest_output
     WorkflowNode.objects.filter(id=node.id).update(**updates)
-    mark_downstream_nodes_stale(node.canvas, [node.id])
+    exclude_node_ids: List[str] = []
+    if node_run.workflow_run_id:
+        exclude_node_ids = list(
+            WorkflowNodeRun.objects
+            .filter(workflow_run_id=node_run.workflow_run_id)
+            .exclude(node_id__isnull=True)
+            .exclude(status__in=TERMINAL_NODE_RUN_STATUSES)
+            .values_list('node_id', flat=True)
+        )
+    mark_downstream_nodes_stale(node.canvas, [node.id], exclude_node_ids=exclude_node_ids)

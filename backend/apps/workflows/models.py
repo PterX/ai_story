@@ -118,11 +118,14 @@ class WorkflowNode(models.Model):
     STATUS_CHOICES = [
         ('idle', '空闲'),
         ('dirty', '待执行'),
+        ('blocked', '已阻断'),
         ('queued', '已排队'),
         ('running', '运行中'),
+        ('waiting_callback', '等待回调'),
         ('completed', '已完成'),
         ('failed', '失败'),
         ('stale', '结果过期'),
+        ('cancelled', '已取消'),
     ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -294,6 +297,7 @@ class WorkflowNodeRun(models.Model):
 
     STATUS_CHOICES = [
         ('pending', '待运行'),
+        ('blocked', '已阻断'),
         ('queued', '已排队'),
         ('running', '运行中'),
         ('waiting_callback', '等待回调'),
@@ -445,6 +449,59 @@ class WorkflowBinding(models.Model):
 
     def __str__(self):
         return f'{self.binding_type}:{self.target_id}'
+
+
+class WorkflowNodeRunEvent(models.Model):
+    """节点运行事件日志。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workflow_run = models.ForeignKey(
+        WorkflowRun,
+        on_delete=models.CASCADE,
+        related_name='node_run_events',
+        null=True,
+        blank=True,
+        verbose_name='工作流运行',
+    )
+    canvas = models.ForeignKey(
+        WorkflowCanvas,
+        on_delete=models.CASCADE,
+        related_name='node_run_events',
+        null=True,
+        blank=True,
+        verbose_name='画板',
+    )
+    node = models.ForeignKey(
+        WorkflowNode,
+        on_delete=models.SET_NULL,
+        related_name='run_events',
+        null=True,
+        blank=True,
+        verbose_name='节点',
+    )
+    node_run = models.ForeignKey(
+        WorkflowNodeRun,
+        on_delete=models.CASCADE,
+        related_name='events',
+        verbose_name='节点运行',
+    )
+    event_type = models.CharField('事件类型', max_length=100)
+    payload = models.JSONField('事件载荷', default=dict, blank=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    class Meta:
+        db_table = 'workflow_node_run_events'
+        verbose_name = '节点运行事件'
+        verbose_name_plural = '节点运行事件'
+        ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['node_run', 'created_at'], name='wf_node_run_event_idx'),
+            models.Index(fields=['workflow_run', 'created_at'], name='wf_run_event_created_idx'),
+            models.Index(fields=['canvas', 'created_at'], name='wf_canvas_event_created_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.node_run_id}:{self.event_type}'
 
 
 class WorkflowCallbackEvent(models.Model):

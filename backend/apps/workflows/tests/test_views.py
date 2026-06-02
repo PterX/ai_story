@@ -10,7 +10,15 @@ from unittest.mock import patch
 from apps.content.models import ContentRewrite, GeneratedImage, Storyboard
 from apps.projects.models import Project, ProjectStage, Series
 from apps.workflows.node_executors.execute_rewrite import execute_rewrite
-from apps.workflows.models import WorkflowCallbackEvent, WorkflowCanvas, WorkflowEdge, WorkflowNode, WorkflowNodeRun, WorkflowRun
+from apps.workflows.models import (
+    WorkflowCallbackEvent,
+    WorkflowCanvas,
+    WorkflowEdge,
+    WorkflowNode,
+    WorkflowNodeRun,
+    WorkflowNodeRunEvent,
+    WorkflowRun,
+)
 
 
 User = get_user_model()
@@ -718,6 +726,7 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(response.data['summary']['total_count'], 2)
         self.assertEqual(response.data['summary']['queued_count'], 2)
         self.assertEqual(response.data['summary']['failed_count'], 0)
+        self.assertEqual(response.data['summary']['pending_count'], 0)
         self.assertEqual(len(response.data['runs']), 2)
         self.assertEqual({item['status'] for item in response.data['runs']}, {'queued'})
         self.assertEqual(mock_delay.call_count, 2)
@@ -753,6 +762,7 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
         self.assertEqual(response.data['summary']['total_count'], 1)
         self.assertEqual(response.data['summary']['queued_count'], 1)
         self.assertEqual(response.data['summary']['failed_count'], 0)
+        self.assertEqual(response.data['summary']['pending_count'], 0)
         self.assertEqual(len(response.data['runs']), 1)
         self.assertEqual(response.data['runs'][0]['status'], 'queued')
         mock_delay.assert_called_once()
@@ -788,12 +798,13 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['summary']['queued_count'], 1)
+        self.assertEqual(response.data['summary']['pending_count'], 0)
         asset_node.refresh_from_db()
         self.assertEqual(asset_node.status, 'queued')
         mock_delay.assert_called_once()
 
     @patch('apps.workflows.views.execute_workflow_node_task.delay')
-    def test_execute_selection_rejects_dependent_nodes(self, mock_delay):
+    def test_execute_selection_accepts_dependent_nodes_in_dag_order(self, mock_delay):
         second_node = WorkflowNode.objects.create(
             canvas=self.canvas,
             node_key='image_node',
@@ -825,9 +836,19 @@ class WorkflowNodeExecutionAPITestCase(APITestCase):
             format='json',
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('依赖关系', str(response.data))
-        mock_delay.assert_not_called()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['summary']['total_count'], 2)
+        self.assertEqual(response.data['summary']['queued_count'], 1)
+        self.assertEqual(response.data['summary']['pending_count'], 1)
+        self.assertEqual(response.data['summary']['failed_count'], 0)
+        statuses = {item['node_key']: item['status'] for item in response.data['runs']}
+        self.assertEqual(statuses['rewrite_node'], 'queued')
+        self.assertEqual(statuses['image_node'], 'pending')
+        mock_delay.assert_called_once()
+        self.node.refresh_from_db()
+        second_node.refresh_from_db()
+        self.assertEqual(self.node.status, 'queued')
+        self.assertEqual(second_node.status, 'idle')
 
 
 class ExecuteRewriteNodeExecutorTestCase(APITestCase):
@@ -865,3 +886,92 @@ class ExecuteRewriteNodeExecutorTestCase(APITestCase):
         user_message = request_payload['messages'][1]['content']
         self.assertIn('修改要求：\n直接给出改写建议', user_message)
         self.assertNotIn('原始内容：', user_message)
+
+
+class WorkflowRuntimeEventAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='runtime-event-user', password='secret123')
+        self.client.force_authenticate(self.user)
+        self.series = Series.objects.create(name='测试作品', description='desc', user=self.user)
+        self.project = Project.objects.create(
+            user=self.user,
+            series=self.series,
+            episode_number=1,
+            sort_order=1,
+            episode_title='第1集',
+            name='第1集',
+            original_topic='原始文案',
+        )
+        initialize_project(self.project)
+        self.canvas = WorkflowCanvas.objects.create(
+            name='事件画板',
+            project=self.project,
+            series=self.series,
+            created_by=self.user,
+            status='active',
+        )
+        self.workflow_run = WorkflowRun.objects.create(
+            project=self.project,
+            series=self.series,
+            created_by=self.user,
+            status='completed',
+        )
+        self.node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            title='改写',
+            status='completed',
+        )
+        self.node_run = WorkflowNodeRun.objects.create(
+            workflow_run=self.workflow_run,
+            canvas=self.canvas,
+            node=self.node,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            status='completed',
+            external_task_id='celery-node-task-rt-1',
+        )
+        self.event = WorkflowNodeRunEvent.objects.create(
+            workflow_run=self.workflow_run,
+            canvas=self.canvas,
+            node=self.node,
+            node_run=self.node_run,
+            event_type='run_completed',
+            payload={'task_id': 'celery-node-task-rt-1'},
+        )
+
+    def test_list_node_run_events(self):
+        response = self.client.get(reverse('workflow-node-run-event-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        items = response.data.get('results', response.data)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0]['event_type'], 'run_completed')
+        self.assertEqual(str(items[0]['node_run']), str(self.node_run.id))
+
+    def test_workflow_run_stream_returns_event_and_terminal_message(self):
+        response = self.client.get(
+            reverse('workflow-run-stream', args=[self.workflow_run.id]),
+            HTTP_ACCEPT='text/event-stream',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload_text = b''.join(response.streaming_content).decode('utf-8')
+        self.assertIn('"type": "connected"', payload_text)
+        self.assertIn('"type": "run_completed"', payload_text)
+        self.assertIn('"type": "pipeline_done"', payload_text)
+        self.assertIn(str(self.workflow_run.id), payload_text)
+
+    def test_canvas_stream_returns_event_and_terminal_message(self):
+        response = self.client.get(
+            reverse('workflow-canvas-stream', args=[self.canvas.id]),
+            HTTP_ACCEPT='text/event-stream',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload_text = b''.join(response.streaming_content).decode('utf-8')
+        self.assertIn('"type": "connected"', payload_text)
+        self.assertIn('"type": "run_completed"', payload_text)
+        self.assertIn('"type": "pipeline_done"', payload_text)
+        self.assertIn(str(self.canvas.id), payload_text)

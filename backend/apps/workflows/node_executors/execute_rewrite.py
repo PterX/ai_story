@@ -94,7 +94,7 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         )
     else:
         prompt_sections.append(
-            instruction
+            f'修改要求：\n{instruction}'
         )
     prompt_text = '\n\n'.join(section for section in prompt_sections if section)
 
@@ -155,27 +155,41 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     full_text = ''
     result_id = f'chatcmpl-{uuid.uuid4().hex[:8]}'
     result_model = provider.model_name
-    for line in response.iter_lines(chunk_size=1, decode_unicode=True):
-        if not line:
-            continue
-        if line.startswith('data: '):
-            data_str = line[6:]
-            if data_str.strip() == '[DONE]':
-                break
-            try:
-                chunk = json.loads(data_str)
-            except json.JSONDecodeError:
+    if hasattr(response, 'iter_lines'):
+        for line in response.iter_lines(chunk_size=1, decode_unicode=True):
+            if not line:
                 continue
-            result_id = chunk.get('id', result_id)
-            result_model = chunk.get('model', result_model)
-            choices = chunk.get('choices') or []
-            if choices:
-                delta = choices[0].get('delta') or {}
-                content = delta.get('content')
-                if content:
-                    full_text += content
+            if line.startswith('data: '):
+                data_str = line[6:]
+                if data_str.strip() == '[DONE]':
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                result_id = chunk.get('id', result_id)
+                result_model = chunk.get('model', result_model)
+                choices = chunk.get('choices') or []
+                if choices:
+                    delta = choices[0].get('delta') or {}
+                    content = delta.get('content')
+                    if content:
+                        full_text += content
+    else:
+        body = response.json() if hasattr(response, 'json') else {}
+        choices = body.get('choices') or []
+        if choices:
+            message = choices[0].get('message') or {}
+            full_text = (message.get('content') or '').strip()
 
     latency_ms = int((time.time() - start_time) * 1000)
+    provider_payload = _build_provider_payload(provider) if getattr(provider, 'id', None) else {
+        'id': '',
+        'name': getattr(provider, 'name', ''),
+        'provider_type': getattr(provider, 'provider_type', ''),
+        'model_type': getattr(provider, 'model_type', ''),
+        'model_name': getattr(provider, 'model_name', ''),
+    }
     result = {
         'id': result_id,
         'object': 'chat.completion',
@@ -189,7 +203,7 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'usage': {},
         'metadata': {
             'latency_ms': latency_ms,
-            'provider': _build_provider_payload(provider),
+            'provider': provider_payload,
         },
     }
     assistant_text = full_text.strip() or '模型未返回可显示的修改建议'

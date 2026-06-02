@@ -23,6 +23,7 @@
               v-model="form.username"
               type="text"
               placeholder="请输入用户名"
+              autocomplete="username"
               class="input input-bordered"
               :class="{ 'input-error': errors.username }"
               required
@@ -44,6 +45,7 @@
               v-model="form.email"
               type="email"
               placeholder="请输入邮箱"
+              autocomplete="email"
               class="input input-bordered"
               :class="{ 'input-error': errors.email }"
               required
@@ -65,6 +67,7 @@
               v-model="form.password"
               type="password"
               placeholder="至少6位密码"
+              autocomplete="new-password"
               class="input input-bordered"
               :class="{ 'input-error': errors.password }"
               required
@@ -86,6 +89,7 @@
               v-model="form.password_confirm"
               type="password"
               placeholder="请再次输入密码"
+              autocomplete="new-password"
               class="input input-bordered"
               :class="{ 'input-error': errors.password_confirm }"
               required

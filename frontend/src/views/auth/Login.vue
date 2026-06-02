@@ -23,6 +23,7 @@
               v-model="form.username"
               type="text"
               placeholder="请输入用户名"
+              autocomplete="username"
               class="input input-bordered"
               :class="{ 'input-error': errors.username }"
               required
@@ -44,6 +45,7 @@
               v-model="form.password"
               type="password"
               placeholder="请输入密码"
+              autocomplete="current-password"
               class="input input-bordered"
               :class="{ 'input-error': errors.password }"
               required

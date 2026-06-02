@@ -74,6 +74,7 @@
             <input
               v-model.trim="form.api_key"
               type="password"
+              autocomplete="new-password"
               class="field-input"
               placeholder="请输入该厂商 API Key"
             >

@@ -142,6 +142,7 @@
               <input
                 v-model.trim="vendorForm.api_key"
                 type="password"
+                autocomplete="new-password"
                 class="field-input"
                 placeholder="请输入该厂商 API Key"
                 @blur="handleVendorConnectionBlur"

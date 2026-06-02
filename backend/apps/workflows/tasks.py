@@ -8,6 +8,7 @@ from celery import shared_task
 from .models import WorkflowNodeRun
 from .node_executors import (
     execute_asset_extraction,
+    execute_audio,
     execute_image_generation,
     execute_rewrite,
     execute_storyboard,
@@ -33,6 +34,8 @@ def _dispatch_node_execution(node_run: WorkflowNodeRun) -> Dict[str, Any]:
         return execute_image_generation(input_payload)
     if node_run.node_type == 'video_generation':
         return execute_video_generation(input_payload)
+    if node_run.node_type == 'audio':
+        return execute_audio(input_payload)
     raise RuntimeError(f'暂不支持节点类型 {node_run.node_type} 的异步执行')
 
 

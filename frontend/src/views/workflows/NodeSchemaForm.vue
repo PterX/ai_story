@@ -171,6 +171,19 @@
                 </option>
               </select>
             </label>
+
+            <label class="field-block field-block-wide">
+              <span class="field-label">子图模板 JSON</span>
+              <textarea
+                v-model="graphJson"
+                placeholder="配置 materialization.graph，包含 nodes、edges 和每个模板节点的 data_mapping"
+                class="field-input field-textarea field-textarea-xl code-textarea"
+                rows="14"
+              />
+              <span class="field-hint">
+                这里会保存到 schema_config.materialization.graph。nodes[].data_mapping 决定模型 items 字段如何填入子节点。
+              </span>
+            </label>
           </div>
         </section>
 
@@ -242,6 +255,7 @@ export default {
         is_active: true
       },
       schemaConfig: createDefaultSchemaConfig(),
+      graphJson: JSON.stringify(createDefaultSchemaConfig().materialization.graph, null, 2),
       loading: false,
       submitting: false
     }
@@ -281,6 +295,7 @@ export default {
               ...(data.schema_config.materialization || {})
             }
           }
+          this.graphJson = JSON.stringify(this.schemaConfig.materialization.graph || { nodes: [], edges: [] }, null, 2)
         }
       } catch (error) {
         console.error('加载节点结构定义失败:', error)
@@ -294,9 +309,40 @@ export default {
     async handleSubmit() {
       this.submitting = true
       try {
+        let graph
+        try {
+          graph = JSON.parse(this.graphJson || '{}')
+        } catch (error) {
+          this.$message?.error('子图模板 JSON 格式不正确')
+          return
+        }
+        if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
+          this.$message?.error('子图模板 JSON 必须是对象')
+          return
+        }
+        if (graph.nodes && !Array.isArray(graph.nodes)) {
+          this.$message?.error('子图模板 JSON 的 nodes 必须是数组')
+          return
+        }
+        if (graph.edges && !Array.isArray(graph.edges)) {
+          this.$message?.error('子图模板 JSON 的 edges 必须是数组')
+          return
+        }
+
+        const schemaConfig = {
+          ...this.schemaConfig,
+          materialization: {
+            ...(this.schemaConfig.materialization || {}),
+            graph: {
+              ...graph,
+              nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
+              edges: Array.isArray(graph.edges) ? graph.edges : []
+            }
+          }
+        }
         const payload = {
           ...this.formData,
-          schema_config: this.schemaConfig
+          schema_config: schemaConfig
         }
 
         if (this.isEdit) {
@@ -454,6 +500,10 @@ export default {
   gap: 1rem;
 }
 
+.form-grid-spaced {
+  margin-top: 1rem;
+}
+
 .field-block {
   display: flex;
   flex-direction: column;
@@ -514,6 +564,16 @@ export default {
 
 .field-textarea-lg {
   min-height: 180px;
+}
+
+.field-textarea-xl {
+  min-height: 320px;
+}
+
+.code-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  line-height: 1.5;
+  white-space: pre;
 }
 
 .field-hint {

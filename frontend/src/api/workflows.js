@@ -41,9 +41,3 @@ export const workflowNodeSchemaApi = {
     return apiClient.delete(`/workflows/node-schemas/${id}/`);
   },
 };
-
-export const createDefaultUiConfig = () => ({
-  list_fields: ['title', 'preview_text'],
-  preview_mode: 'cards',
-  split_button_text: '展开为子图',
-});

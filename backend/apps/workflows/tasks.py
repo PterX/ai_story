@@ -6,9 +6,11 @@ from typing import Any, Dict
 from celery import shared_task
 
 from .models import WorkflowNodeRun
+from .node_schema_runtime import prepare_node_run_input_payload
 from .node_executors import (
     execute_asset_extraction,
     execute_audio,
+    execute_dynamic_schema,
     execute_image_generation,
     execute_rewrite,
     execute_storyboard,
@@ -23,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 def _dispatch_node_execution(node_run: WorkflowNodeRun) -> Dict[str, Any]:
     """根据节点类型分发到对应的执行函数。"""
-    input_payload = node_run.input_payload or {}
+    input_payload = prepare_node_run_input_payload(node_run)
     if node_run.node_type == 'rewrite':
         return execute_rewrite(input_payload)
     if node_run.node_type == 'asset_extraction':
@@ -36,6 +38,8 @@ def _dispatch_node_execution(node_run: WorkflowNodeRun) -> Dict[str, Any]:
         return execute_video_generation(input_payload)
     if node_run.node_type == 'audio':
         return execute_audio(input_payload)
+    if node_run.node_type == 'dynamic_schema':
+        return execute_dynamic_schema(node_run, input_payload)
     raise RuntimeError(f'暂不支持节点类型 {node_run.node_type} 的异步执行')
 
 

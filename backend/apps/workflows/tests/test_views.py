@@ -10,6 +10,7 @@ from unittest.mock import patch
 from apps.content.models import ContentRewrite, GeneratedImage, Storyboard
 from apps.projects.models import Project, ProjectStage, Series
 from apps.workflows.node_executors.execute_rewrite import execute_rewrite
+from apps.workflows.node_executors.lifecycle import finalize_success
 from apps.workflows.models import (
     WorkflowCallbackEvent,
     WorkflowCanvas,
@@ -17,6 +18,7 @@ from apps.workflows.models import (
     WorkflowNode,
     WorkflowNodeRun,
     WorkflowNodeRunEvent,
+    WorkflowNodeSchema,
     WorkflowRun,
 )
 
@@ -886,6 +888,142 @@ class ExecuteRewriteNodeExecutorTestCase(APITestCase):
         user_message = request_payload['messages'][1]['content']
         self.assertIn('修改要求：\n直接给出改写建议', user_message)
         self.assertNotIn('原始内容：', user_message)
+
+    @patch('apps.workflows.node_executors.execute_rewrite.requests.post')
+    @patch('apps.workflows.node_executors.execute_rewrite._pick_provider')
+    def test_execute_rewrite_uses_node_schema_system_prompt(self, mock_pick_provider, mock_post):
+        mock_pick_provider.return_value = SimpleNamespace(
+            model_name='provider-model',
+            timeout=30,
+            max_tokens=1024,
+            api_key='secret',
+            api_url='https://example.com/v1/chat/completions',
+        )
+        mock_post.return_value = SimpleNamespace(
+            status_code=200,
+            json=lambda: {
+                'choices': [
+                    {
+                        'message': {
+                            'content': '改写结果',
+                        },
+                    },
+                ],
+            },
+        )
+
+        execute_rewrite({
+            'instruction': '改写',
+            '__node_schema': {
+                'system_prompt': '你是{{ role }}',
+            },
+            'role': '短剧编辑',
+        })
+
+        request_payload = mock_post.call_args.kwargs['json']
+        self.assertEqual(request_payload['messages'][0]['content'], '你是短剧编辑')
+
+
+class WorkflowNodeSchemaRuntimeTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='schema-runtime-user', password='secret123')
+        self.series = Series.objects.create(name='结构作品', description='desc', user=self.user)
+        self.project = Project.objects.create(
+            user=self.user,
+            series=self.series,
+            episode_number=1,
+            sort_order=1,
+            episode_title='第1集',
+            name='第1集',
+            original_topic='原始文案',
+        )
+        initialize_project(self.project)
+        self.canvas = WorkflowCanvas.objects.create(
+            name='结构画板',
+            project=self.project,
+            series=self.series,
+            created_by=self.user,
+            status='active',
+        )
+        self.node_schema = WorkflowNodeSchema.objects.create(
+            key='split_scene',
+            name='拆场景',
+            created_by=self.user,
+            schema_config={
+                'output_schema': {
+                    'output_type': 'collection',
+                    'items_path': 'items',
+                    'source_text_path': 'source_text',
+                    'summary_path': 'summary',
+                },
+                'materialization': {
+                    'mode': 'per_item_subgraph',
+                    'graph': {
+                        'nodes': [
+                            {
+                                'node_key': 'scene:{{ index }}',
+                                'node_type': 'rewrite',
+                                'title': '{{ item.title }}',
+                                'position_x': 480,
+                                'position_y': '{{ index * 120 }}',
+                                'config_data': {
+                                    'instruction': '{{ item.prompt }}',
+                                },
+                            }
+                        ],
+                        'edges': [
+                            {
+                                'edge_key': 'edge:parent:{{ index }}',
+                                'source_node': '$parent',
+                                'target_node': 'scene:{{ index }}',
+                            }
+                        ],
+                    },
+                },
+            },
+        )
+        self.node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='split_node',
+            node_type='audio',
+            title='拆分',
+            config_data={'node_schema_key': self.node_schema.key},
+        )
+        self.node_run = WorkflowNodeRun.objects.create(
+            canvas=self.canvas,
+            node=self.node,
+            node_key=self.node.node_key,
+            node_type=self.node.node_type,
+            status='running',
+            sequence=1,
+        )
+
+    def test_finalize_success_normalizes_schema_output_without_materializing_subgraph(self):
+        finalize_success(
+            str(self.node_run.id),
+            output_payload={},
+            normalized_output={
+                'source_text': '全文',
+                'summary': '摘要',
+                'items': [
+                    {
+                        'title': '第一场',
+                        'prompt': '扩写第一场',
+                    }
+                ],
+            },
+        )
+
+        self.node_run.refresh_from_db()
+        self.assertEqual(self.node_run.normalized_output['schema_output']['source_text'], '全文')
+        self.assertEqual(self.node_run.normalized_output['schema_output']['summary'], '摘要')
+        self.assertEqual(self.node_run.normalized_output['node_schema']['key'], 'split_scene')
+        self.assertFalse(WorkflowNode.objects.filter(canvas=self.canvas, node_key='scene:1').exists())
+        self.assertFalse(WorkflowEdge.objects.filter(canvas=self.canvas, edge_key='edge:parent:1').exists())
+        self.assertFalse(WorkflowNodeRunEvent.objects.filter(
+            node_run=self.node_run,
+            event_type='schema_materialized',
+        ).exists())
 
 
 class WorkflowRuntimeEventAPITestCase(APITestCase):

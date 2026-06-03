@@ -5,18 +5,40 @@
         <h1 class="page-title">
           提示词管理
         </h1>
-        <p class="page-subtitle">
-          {{ total }} 个提示词集
-        </p>
       </div>
+    </div>
+
+    <div class="top-tabs">
       <button
+        :class="['top-tab', { active: activeTab === 'prompts' }]"
+        @click="switchTab('prompts')"
+      >
+        提示词集
+      </button>
+      <button
+        :class="['top-tab', { active: activeTab === 'schemas' }]"
+        @click="switchTab('schemas')"
+      >
+        节点结构定义
+      </button>
+      <div class="tab-spacer" />
+      <button
+        v-if="activeTab === 'prompts'"
         class="primary-action"
         @click="handleCreate"
       >
         <span>创建提示词集</span>
       </button>
+      <button
+        v-if="activeTab === 'schemas'"
+        class="primary-action"
+        @click="$router.push({ name: 'NodeSchemaCreate' })"
+      >
+        <span>新建节点结构定义</span>
+      </button>
     </div>
 
+    <template v-if="activeTab === 'prompts'">
     <div class="filter-card">
       <div class="search-box">
         <svg
@@ -218,6 +240,12 @@
         <button>关闭</button>
       </form>
     </dialog>
+    </template>
+
+    <NodeSchemaManager
+      v-if="activeTab === 'schemas'"
+      embedded
+    />
   </div>
 </template>
 
@@ -225,6 +253,7 @@
 import { mapState, mapActions } from 'vuex';
 import StatusBadge from '@/components/common/StatusBadge.vue';
 import LoadingContainer from '@/components/common/LoadingContainer.vue';
+import NodeSchemaManager from '@/views/workflows/NodeSchemaManager.vue';
 import { formatDate } from '@/utils/helpers';
 
 const PROMPT_FILTER_STORAGE_KEY = 'prompt_list_filters';
@@ -258,6 +287,7 @@ export default {
   components: {
     StatusBadge,
     LoadingContainer,
+    NodeSchemaManager,
   },
   data() {
     const savedFilters = getSavedPromptFilters();
@@ -268,6 +298,7 @@ export default {
       filterDefault: savedFilters.filterDefault,
       currentPage: 1,
       pageSize: 9,
+      activeTab: 'prompts',
       cloneName: '',
       cloneTarget: null,
       searchTimer: null,
@@ -371,6 +402,10 @@ export default {
     handleDefaultFilter(value) {
       this.filterDefault = value;
       this.handleFilter();
+    },
+
+    switchTab(tab) {
+      this.activeTab = tab;
     },
 
     handlePageChange(page) {
@@ -520,6 +555,47 @@ export default {
   border-color: rgba(20, 184, 166, 0.6);
   box-shadow: 0 12px 24px rgba(20, 184, 166, 0.18);
   transform: translateY(-1px);
+}
+
+.top-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.tab-spacer {
+  flex: 1;
+}
+
+.top-tab {
+  padding: 0.5rem 1.25rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.9);
+  color: #64748b;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.layout-shell.theme-dark .top-tab {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(148, 163, 184, 0.25);
+  color: #cbd5e1;
+}
+
+.top-tab.active {
+  background: rgba(20, 184, 166, 0.16);
+  color: #0f172a;
+  border-color: rgba(20, 184, 166, 0.5);
+}
+
+.layout-shell.theme-dark .top-tab.active {
+  background: rgba(94, 234, 212, 0.2);
+  color: #e2e8f0;
+  border-color: rgba(94, 234, 212, 0.5);
 }
 
 .filter-card {

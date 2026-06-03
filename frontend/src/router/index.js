@@ -149,6 +149,24 @@ const routes = [
         component: () => import('@/views/prompts/PromptDebugWorkbench.vue'),
         meta: { title: '提示词调试工作台' },
       },
+      {
+        path: 'node-schemas',
+        name: 'NodeSchemaManager',
+        component: () => import('@/views/workflows/NodeSchemaManager.vue'),
+        meta: { title: '节点结构定义' },
+      },
+      {
+        path: 'node-schemas/create',
+        name: 'NodeSchemaCreate',
+        component: () => import('@/views/workflows/NodeSchemaForm.vue'),
+        meta: { title: '新建节点结构定义' },
+      },
+      {
+        path: 'node-schemas/:id/edit',
+        name: 'NodeSchemaEdit',
+        component: () => import('@/views/workflows/NodeSchemaForm.vue'),
+        meta: { title: '编辑节点结构定义' },
+      },
     ],
   },
   {

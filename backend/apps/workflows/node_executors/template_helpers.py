@@ -77,6 +77,9 @@ def build_storyboard_template_vars(project, input_payload: Dict[str, Any]) -> Di
 
 def render_storyboard_system_prompt(project, template: PromptTemplate, input_payload: Dict[str, Any]) -> str:
     """渲染分镜系统提示词。"""
+    system_prompt_override = str(input_payload.get('system_prompt') or input_payload.get('systemPrompt') or '').strip()
+    if system_prompt_override:
+        return system_prompt_override
     try:
         return Template(template.template_content).render(**build_storyboard_template_vars(project, input_payload))
     except TemplateError as exc:
@@ -151,6 +154,9 @@ def build_asset_extraction_template_vars(project, input_payload: Dict[str, Any])
 
 def render_asset_extraction_system_prompt(project, template: PromptTemplate, input_payload: Dict[str, Any]) -> str:
     """渲染资产抽取系统提示词。"""
+    system_prompt_override = str(input_payload.get('system_prompt') or input_payload.get('systemPrompt') or '').strip()
+    if system_prompt_override:
+        return system_prompt_override
     try:
         return Template(template.template_content).render(**build_asset_extraction_template_vars(project, input_payload))
     except TemplateError as exc:

@@ -231,7 +231,7 @@
           <li>
             <router-link
               to="/prompts"
-              :class="{ 'active': activeMenu === '/prompts' }"
+              :class="{ 'active': activeMenu === '/prompts' || activeMenu.startsWith('/prompts/') }"
             >
               提示词管理
             </router-link>
@@ -328,7 +328,7 @@
           <router-link
             to="/prompts"
             class="rail-item"
-            :class="{ 'is-active': activeMenu === '/prompts' }"
+            :class="{ 'is-active': activeMenu === '/prompts' || activeMenu.startsWith('/prompts/') }"
             :data-tip="sidebarCollapsed ? '提示词管理' : ''"
             style="--rail-index: 2"
           >

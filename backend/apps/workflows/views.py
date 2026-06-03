@@ -21,6 +21,7 @@ from .models import (
     WorkflowDefinition,
     WorkflowEdge,
     WorkflowNode,
+    WorkflowNodeSchema,
     WorkflowNodeRun,
     WorkflowNodeRunEvent,
     WorkflowRun,
@@ -37,6 +38,7 @@ from .serializers import (
     WorkflowEdgeSerializer,
     WorkflowNodeExecuteSerializer,
     WorkflowNodeApplyResultSerializer,
+    WorkflowNodeSchemaSerializer,
     WorkflowNodeRunCreateSerializer,
     WorkflowNodeRunEventSerializer,
     WorkflowNodeRunSerializer,
@@ -111,6 +113,28 @@ class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
     search_fields = ['key', 'name']
     ordering_fields = ['created_at', 'updated_at', 'version']
     ordering = ['key', '-version']
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+class WorkflowNodeSchemaViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WorkflowNodeSchemaSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['is_active']
+    search_fields = ['key', 'name', 'description', 'system_prompt']
+    ordering_fields = ['created_at', 'updated_at', 'key', 'name']
+    ordering = ['key']
+
+    def get_queryset(self):
+        queryset = WorkflowNodeSchema.objects.all()
+        user = self.request.user
+
+        if not user.is_staff:
+            queryset = queryset.filter(created_by=user)
+
+        return queryset.select_related('created_by')
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)

@@ -12,9 +12,13 @@ from .models import (
     WorkflowDefinition,
     WorkflowEdge,
     WorkflowNode,
+    WorkflowNodeSchema,
     WorkflowNodeRun,
     WorkflowNodeRunEvent,
     WorkflowRun,
+)
+from .node_schema_runtime import (
+    apply_node_schema_output_normalization,
 )
 from .services import (
     apply_workflow_node_result,
@@ -36,6 +40,28 @@ class WorkflowDefinitionSerializer(serializers.ModelSerializer):
             'is_active', 'created_by', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
+
+
+class WorkflowNodeSchemaSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+
+    class Meta:
+        model = WorkflowNodeSchema
+        fields = [
+            'id', 'key', 'name', 'description', 'system_prompt', 'schema_config', 'ui_config',
+            'is_active', 'created_by', 'created_by_name', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_by', 'created_by_name', 'created_at', 'updated_at']
+
+    def validate_schema_config(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('schema_config 必须是对象')
+        return value
+
+    def validate_ui_config(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError('ui_config 必须是对象')
+        return value
 
 
 class WorkflowEdgeSerializer(serializers.ModelSerializer):
@@ -423,7 +449,7 @@ class WorkflowSelectionNodeExecuteSerializer(serializers.Serializer):
 class WorkflowCanvasExecuteSelectionSerializer(serializers.Serializer):
     nodes = WorkflowSelectionNodeExecuteSerializer(many=True)
 
-    SUPPORTED_NODE_TYPES = {'rewrite', 'asset_extraction', 'storyboard', 'image_generation', 'video_generation', 'audio'}
+    SUPPORTED_NODE_TYPES = {'rewrite', 'asset_extraction', 'storyboard', 'image_generation', 'video_generation', 'audio', 'dynamic_schema'}
     ACTIVE_NODE_STATUSES = {'queued', 'running', 'waiting_callback'}
 
     def validate(self, attrs):
@@ -685,6 +711,11 @@ class WorkflowCallbackEventSerializer(serializers.ModelSerializer):
                     node_run.output_payload = event.payload
                     update_fields.append('output_payload')
                 if normalized_output is not None:
+                    normalized_output = apply_node_schema_output_normalization(
+                        node_run,
+                        output_payload=event.payload or node_run.output_payload or {},
+                        normalized_output=normalized_output,
+                    )
                     node_run.normalized_output = normalized_output
                     update_fields.append('normalized_output')
                 if update_fields:

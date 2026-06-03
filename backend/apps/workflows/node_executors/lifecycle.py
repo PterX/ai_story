@@ -6,6 +6,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from ..models import WorkflowNode, WorkflowNodeRun
+from ..node_schema_runtime import apply_node_schema_output_normalization
 from ..services import (
     apply_workflow_node_result,
     block_downstream_pending_runs,
@@ -51,6 +52,11 @@ def finalize_success(
         node_run = WorkflowNodeRun.objects.select_related('node', 'canvas', 'workflow_run').get(id=node_run_id)
         node_run.status = 'completed'
         node_run.output_payload = output_payload
+        normalized_output = apply_node_schema_output_normalization(
+            node_run,
+            output_payload=output_payload,
+            normalized_output=normalized_output,
+        )
         node_run.normalized_output = normalized_output
         node_run.error_message = ''
         node_run.completed_at = timezone.now()

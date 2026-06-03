@@ -12,6 +12,7 @@ import requests
 from django.conf import settings
 
 from apps.ai_proxy.views import _build_provider_payload, _pick_provider
+from apps.workflows.node_schema_runtime import render_schema_system_prompt
 
 DEFAULT_REWRITE_SYSTEM_PROMPT = (
     '你是专业的中文剧本编辑。请基于用户提供的原始内容和修改要求，'
@@ -117,12 +118,12 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
                 },
             })
         messages = [
-            {'role': 'system', 'content': DEFAULT_REWRITE_SYSTEM_PROMPT},
+            {'role': 'system', 'content': render_schema_system_prompt(input_payload, DEFAULT_REWRITE_SYSTEM_PROMPT)},
             {'role': 'user', 'content': message_content},
         ]
     else:
         messages = [
-            {'role': 'system', 'content': DEFAULT_REWRITE_SYSTEM_PROMPT},
+            {'role': 'system', 'content': render_schema_system_prompt(input_payload, DEFAULT_REWRITE_SYSTEM_PROMPT)},
             {'role': 'user', 'content': prompt_text},
         ]
 

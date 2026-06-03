@@ -49,6 +49,41 @@ class WorkflowDefinition(models.Model):
         return f'{self.key}@v{self.version}'
 
 
+class WorkflowNodeSchema(models.Model):
+    """节点结构定义。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    key = models.CharField('结构键', max_length=100, unique=True)
+    name = models.CharField('名称', max_length=255)
+    description = models.TextField('描述', blank=True, default='')
+    system_prompt = models.TextField('系统提示词', blank=True, default='')
+    schema_config = models.JSONField('结构配置', default=dict, blank=True)
+    ui_config = models.JSONField('界面配置', default=dict, blank=True)
+    is_active = models.BooleanField('是否启用', default=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='workflow_node_schemas',
+        verbose_name='创建者',
+    )
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        db_table = 'workflow_node_schemas'
+        verbose_name = '节点结构定义'
+        verbose_name_plural = '节点结构定义'
+        ordering = ['key']
+        indexes = [
+            models.Index(fields=['is_active'], name='wf_schema_active_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.key}:{self.name}'
+
+
 class WorkflowCanvas(models.Model):
     """无限画板工作流。"""
 

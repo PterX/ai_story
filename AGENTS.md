@@ -12,7 +12,7 @@
 Stick to PEP8 with four space indents, auto format via `black .`, and lint with `flake8 .`; keep modules SOLID aligned and name stages after their domain action (`rewrite`, `image_generation`). Vue code follows ESLint defaults, camelCase scripts, kebab case component tags, and the existing atoms or molecules or organisms folder split.
 
 ## Testing Guidelines
-Use `cd backend && pytest --cov apps --cov core` as the primary suite, storing new `test_*.py` files next to the feature or alongside existing probes such as `backend/test_celery_redis.py`. Reserve `python manage.py test` for smoke checks and rerun `test_sse.sh` after touching Channels or SSE code; include repro notes or screenshots for UI work until automated component tests are added.
+Use Django's test runner through uv as the primary local path because this environment does not install pytest by default. For focused backend tests, run commands like `cd backend && uv run python manage.py test apps.workflows.tests.test_views -v 2` or `cd backend && uv run python manage.py test apps.projects.tests.test_queue -v 2`. Store new `test_*.py` files next to the feature or alongside existing probes such as `backend/test_celery_redis.py`. Rerun `test_sse.sh` after touching Channels or SSE code; include repro notes or screenshots for UI work until automated component tests are added.
 
 
 ## Frontend UI Consistency

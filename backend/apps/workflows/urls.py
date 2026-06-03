@@ -9,6 +9,7 @@ from .views import (
     WorkflowDefinitionViewSet,
     WorkflowEdgeViewSet,
     WorkflowNodeViewSet,
+    WorkflowNodeSchemaViewSet,
     WorkflowNodeRunEventViewSet,
     WorkflowNodeRunViewSet,
     WorkflowRunViewSet,
@@ -17,6 +18,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r'definitions', WorkflowDefinitionViewSet, basename='workflow-definition')
+router.register(r'node-schemas', WorkflowNodeSchemaViewSet, basename='workflow-node-schema')
 router.register(r'canvases', WorkflowCanvasViewSet, basename='workflow-canvas')
 router.register(r'nodes', WorkflowNodeViewSet, basename='workflow-node')
 router.register(r'edges', WorkflowEdgeViewSet, basename='workflow-edge')

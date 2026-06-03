@@ -210,14 +210,26 @@
 
                 <label class="field-block">
                   <span class="field-label">连接关系</span>
-                  <span class="toggle-card">
-                    <span class="toggle-track">
-                      <input
-                        v-model="template.connect_parent"
-                        type="checkbox"
-                      >
-                      <span class="toggle-text">自动连接父节点到该子节点</span>
-                    </span>
+                  <select
+                    v-model="template.connect_source"
+                    class="field-input"
+                  >
+                    <option value="">
+                      不连线
+                    </option>
+                    <option value="$parent">
+                      父节点
+                    </option>
+                    <option
+                      v-for="option in getConnectionSourceOptions(index)"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                  <span class="field-hint">
+                    选择一条连到当前子节点的来源节点，可连接父节点或其他子节点。
                   </span>
                 </label>
               </div>
@@ -292,7 +304,7 @@ const createSubgraphTemplate = (overrides = {}) => ({
   title: '{{ item.label }}',
   text: '{{ item.text }}',
   prompt: '{{ item.prompt }}',
-  connect_parent: true,
+  connect_source: '$parent',
   rawNode: {},
   rawEdge: {},
   ...overrides
@@ -395,11 +407,10 @@ export default {
         .filter(node => node && typeof node === 'object')
         .map(node => {
           const nodeKey = String(node.node_key || node.key || '').trim()
-          const parentEdge = edges.find(edge => {
+          const incomingEdge = edges.find(edge => {
             if (!edge || typeof edge !== 'object') return false
-            const source = String(edge.source_node || edge.source || '').trim()
             const target = String(edge.target_node || edge.target || '').trim()
-            return source === '$parent' && target === nodeKey
+            return target === nodeKey
           })
 
           const dataMapping = node.data_mapping || {}
@@ -409,9 +420,9 @@ export default {
             title: String(dataMapping.label || '').trim(),
             text: String(dataMapping.text || '').trim(),
             prompt: String(dataMapping.prompt || '').trim(),
-            connect_parent: !!parentEdge,
+            connect_source: incomingEdge ? String(incomingEdge.source_node || incomingEdge.source || '').trim() : '',
             rawNode: { ...node },
-            rawEdge: parentEdge ? { ...parentEdge } : {}
+            rawEdge: incomingEdge ? { ...incomingEdge } : {}
           })
         })
     },
@@ -424,7 +435,8 @@ export default {
           node_type: String(template.node_type || '').trim(),
           title: String(template.title || '').trim(),
           text: String(template.text || '').trim(),
-          prompt: String(template.prompt || '').trim()
+          prompt: String(template.prompt || '').trim(),
+          connect_source: String(template.connect_source || '').trim()
         }))
         .filter(template => template.node_key || template.node_type || template.title || template.text || template.prompt)
 
@@ -463,19 +475,19 @@ export default {
           node.position_x = 480
         }
         if (!node.position_y) {
-          node.position_y = `{{ index * ${120 + index * 40} }}`
+          node.position_y = index * 320
         }
         return node
       })
 
       const edges = templates
-        .filter(template => template.connect_parent)
+        .filter(template => template.connect_source)
         .map(template => {
           const rawEdge = template.rawEdge && typeof template.rawEdge === 'object' ? template.rawEdge : {}
           return {
             ...rawEdge,
-            edge_key: rawEdge.edge_key || `edge:parent:${template.node_key}`,
-            source_node: '$parent',
+            edge_key: rawEdge.edge_key || `edge:${template.connect_source}:${template.node_key}`,
+            source_node: template.connect_source,
             target_node: template.node_key
           }
         })
@@ -491,6 +503,22 @@ export default {
 
     removeSubgraphTemplate(index) {
       this.subgraphTemplates.splice(index, 1)
+      const validSources = new Set(['$parent', ...this.subgraphTemplates.map(template => String(template.node_key || '').trim()).filter(Boolean)])
+      this.subgraphTemplates.forEach(template => {
+        if (template.connect_source && !validSources.has(template.connect_source)) {
+          template.connect_source = ''
+          template.rawEdge = {}
+        }
+      })
+    },
+
+    getConnectionSourceOptions(currentIndex) {
+      return this.subgraphTemplates
+        .map((template, index) => ({
+          value: String(template.node_key || '').trim(),
+          label: `子节点 ${index + 1}: ${String(template.node_key || '').trim() || '未命名'}`
+        }))
+        .filter((option, index) => index !== currentIndex && option.value)
     },
 
     isAllowedNodeType(nodeType) {

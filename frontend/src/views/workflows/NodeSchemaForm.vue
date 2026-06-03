@@ -156,7 +156,7 @@
             </label>
           </div>
 
-          <div class="form-grid" style="margin-top: 1rem;">
+          <div class="form-grid form-grid-spaced">
             <label class="field-block">
               <span class="field-label">物化模式</span>
               <select
@@ -170,46 +170,6 @@
                   不展开 (none)
                 </option>
               </select>
-            </label>
-          </div>
-        </section>
-
-        <section class="panel-card">
-          <div class="card-top">
-            <div>
-              <h2 class="card-title">
-                界面配置 (ui_config)
-              </h2>
-              <p class="card-desc">
-                控制前端展示方式
-              </p>
-            </div>
-          </div>
-
-          <div class="form-grid">
-            <label class="field-block">
-              <span class="field-label">预览模式</span>
-              <select
-                v-model="uiConfig.preview_mode"
-                class="field-input"
-              >
-                <option value="cards">
-                  卡片 (cards)
-                </option>
-                <option value="list">
-                  列表 (list)
-                </option>
-              </select>
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">展开按钮文本</span>
-              <input
-                v-model="uiConfig.split_button_text"
-                type="text"
-                placeholder="展开为子图"
-                class="field-input"
-              >
             </label>
           </div>
         </section>
@@ -265,7 +225,7 @@
 
 <script>
 import LoadingContainer from '@/components/common/LoadingContainer.vue'
-import { workflowNodeSchemaApi, createDefaultSchemaConfig, createDefaultUiConfig } from '@/api/workflows'
+import { workflowNodeSchemaApi, createDefaultSchemaConfig } from '@/api/workflows'
 
 export default {
   name: 'NodeSchemaForm',
@@ -282,7 +242,6 @@ export default {
         is_active: true
       },
       schemaConfig: createDefaultSchemaConfig(),
-      uiConfig: createDefaultUiConfig(),
       loading: false,
       submitting: false
     }
@@ -323,9 +282,6 @@ export default {
             }
           }
         }
-        if (data.ui_config) {
-          this.uiConfig = { ...this.uiConfig, ...data.ui_config }
-        }
       } catch (error) {
         console.error('加载节点结构定义失败:', error)
         this.$message?.error('加载节点结构定义失败')
@@ -340,8 +296,7 @@ export default {
       try {
         const payload = {
           ...this.formData,
-          schema_config: this.schemaConfig,
-          ui_config: this.uiConfig
+          schema_config: this.schemaConfig
         }
 
         if (this.isEdit) {

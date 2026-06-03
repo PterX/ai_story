@@ -174,7 +174,7 @@
                 </label>
 
                 <label class="field-block">
-                  <span class="field-label">标题模板</span>
+                  <span class="field-label">标题模板 (label)</span>
                   <input
                     v-model="template.title"
                     type="text"
@@ -187,25 +187,25 @@
                   v-if="template.node_type === 'rewrite'"
                   class="field-block"
                 >
-                  <span class="field-label">Text 模板</span>
+                  <span class="field-label">Text 模板 (text)</span>
                   <input
                     v-model="template.text"
                     type="text"
                     :placeholder="textPlaceholder"
                     class="field-input"
                   >
-                  <span class="field-hint">保存到文本节点 config_data.text / original_text</span>
+                  <span class="field-hint">保存到 data_mapping.text</span>
                 </label>
 
                 <label class="field-block">
-                  <span class="field-label">Prompt 模板</span>
+                  <span class="field-label">Prompt 模板 (prompt)</span>
                   <input
                     v-model="template.prompt"
                     type="text"
                     :placeholder="promptPlaceholder"
                     class="field-input"
                   >
-                  <span class="field-hint">文本节点会同步保存到 config_data.prompt / instruction</span>
+                  <span class="field-hint">保存到 data_mapping.prompt</span>
                 </label>
 
                 <label class="field-block">
@@ -289,7 +289,7 @@ const createSubgraphTemplate = (overrides = {}) => ({
   localId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
   node_key: 'scene:{{ index }}',
   node_type: 'rewrite',
-  title: '{{ item.title }}',
+  title: '{{ item.label }}',
   text: '{{ item.text }}',
   prompt: '{{ item.prompt }}',
   connect_parent: true,
@@ -328,13 +328,13 @@ export default {
       return !!this.$route.params.id
     },
     templateExample() {
-      return '{{ index }} / {{ item.title }}'
+      return '{{ index }} / {{ item.label }}'
     },
     nodeKeyPlaceholder() {
       return '例如: scene:{{ index }}'
     },
     titlePlaceholder() {
-      return '例如: {{ item.title }}'
+      return '例如: {{ item.label }}'
     },
     textPlaceholder() {
       return '例如: {{ item.text }}'
@@ -402,12 +402,13 @@ export default {
             return source === '$parent' && target === nodeKey
           })
 
+          const dataMapping = node.data_mapping || {}
           return createSubgraphTemplate({
             node_key: nodeKey || 'scene:{{ index }}',
             node_type: this.normalizeNodeType(node.node_type),
-            title: String(node.title || '').trim(),
-            text: String((node.config_data || {}).text || (node.config_data || {}).original_text || '').trim(),
-            prompt: String((node.config_data || {}).prompt || (node.config_data || {}).instruction || '').trim(),
+            title: String(dataMapping.label || '').trim(),
+            text: String(dataMapping.text || '').trim(),
+            prompt: String(dataMapping.prompt || '').trim(),
             connect_parent: !!parentEdge,
             rawNode: { ...node },
             rawEdge: parentEdge ? { ...parentEdge } : {}
@@ -440,39 +441,24 @@ export default {
 
       const nodes = templates.map((template, index) => {
         const rawNode = template.rawNode && typeof template.rawNode === 'object' ? template.rawNode : {}
-        const configData = rawNode.config_data && typeof rawNode.config_data === 'object' ? rawNode.config_data : {}
         const node = {
           ...rawNode,
           node_key: template.node_key,
           node_type: template.node_type,
           title: template.title || template.node_key,
-          config_data: {
-            ...configData
-          }
+          data_mapping: {}
         }
 
-        if (template.node_type === 'rewrite') {
-          if (template.text) {
-            node.config_data.text = template.text
-            node.config_data.original_text = template.text
-          } else {
-            delete node.config_data.text
-            delete node.config_data.original_text
-          }
-        } else {
-          delete node.config_data.text
-          delete node.config_data.original_text
+        if (template.title) {
+          node.data_mapping.label = template.title
         }
-
+        if (template.text) {
+          node.data_mapping.text = template.text
+        }
         if (template.prompt) {
-          node.config_data.prompt = template.prompt
-          if (template.node_type === 'rewrite') {
-            node.config_data.instruction = template.prompt
-          }
-        } else {
-          delete node.config_data.prompt
-          delete node.config_data.instruction
+          node.data_mapping.prompt = template.prompt
         }
+
         if (!node.position_x) {
           node.position_x = 480
         }

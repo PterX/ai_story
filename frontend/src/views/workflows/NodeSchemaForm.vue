@@ -109,81 +109,126 @@
             </div>
           </div>
 
-          <div class="form-grid">
-            <label class="field-block">
-              <span class="field-label">输出类型</span>
-              <select
-                v-model="schemaConfig.output_schema.output_type"
-                class="field-input"
-              >
-                <option value="collection">
-                  集合 (collection)
-                </option>
-                <option value="single">
-                  单项 (single)
-                </option>
-              </select>
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">Items 路径</span>
-              <input
-                v-model="schemaConfig.output_schema.items_path"
-                type="text"
-                placeholder="items"
-                class="field-input"
-              >
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">Source Text 路径</span>
-              <input
-                v-model="schemaConfig.output_schema.source_text_path"
-                type="text"
-                placeholder="source_text"
-                class="field-input"
-              >
-            </label>
-
-            <label class="field-block">
-              <span class="field-label">Summary 路径</span>
-              <input
-                v-model="schemaConfig.output_schema.summary_path"
-                type="text"
-                placeholder="summary"
-                class="field-input"
-              >
-            </label>
+          <div class="subgraph-toolbar">
+            <div class="toolbar-copy">
+              <span class="field-label">子图模板</span>
+              <span class="field-hint">每个输出 item 会按这里的模板生成一个子节点，只需要填写子节点的关键字段。</span>
+            </div>
+            <button
+              type="button"
+              class="secondary-outline-action compact-action"
+              @click="addSubgraphTemplate"
+            >
+              添加子节点
+            </button>
           </div>
 
-          <div class="form-grid form-grid-spaced">
-            <label class="field-block">
-              <span class="field-label">物化模式</span>
-              <select
-                v-model="schemaConfig.materialization.mode"
-                class="field-input"
-              >
-                <option value="per_item_subgraph">
-                  按项展开子图 (per_item_subgraph)
-                </option>
-                <option value="none">
-                  不展开 (none)
-                </option>
-              </select>
-            </label>
+          <div
+            v-if="subgraphTemplates.length"
+            class="template-list"
+          >
+            <div
+              v-for="(template, index) in subgraphTemplates"
+              :key="template.localId"
+              class="template-item"
+            >
+              <div class="template-item-header">
+                <strong>子节点 {{ index + 1 }}</strong>
+                <button
+                  type="button"
+                  class="text-action"
+                  @click="removeSubgraphTemplate(index)"
+                >
+                  删除
+                </button>
+              </div>
 
-            <label class="field-block field-block-wide">
-              <span class="field-label">子图模板 JSON</span>
-              <textarea
-                v-model="graphJson"
-                placeholder="配置 materialization.graph，包含 nodes、edges 和每个模板节点的 data_mapping"
-                class="field-input field-textarea field-textarea-xl code-textarea"
-                rows="14"
-              />
-              <span class="field-hint">
-                这里会保存到 schema_config.materialization.graph。nodes[].data_mapping 决定模型 items 字段如何填入子节点。
-              </span>
-            </label>
+              <div class="form-grid">
+                <label class="field-block">
+                  <span class="field-label">子节点标识 <em>*</em></span>
+                  <input
+                    v-model="template.node_key"
+                    type="text"
+                    :placeholder="nodeKeyPlaceholder"
+                    class="field-input"
+                    required
+                  >
+                  <span class="field-hint">用于更新同一个子节点，可使用 {{ templateExample }}</span>
+                </label>
+
+                <label class="field-block">
+                  <span class="field-label">节点类型 <em>*</em></span>
+                  <select
+                    v-model="template.node_type"
+                    class="field-input"
+                    required
+                  >
+                    <option
+                      v-for="option in nodeTypeOptions"
+                      :key="option.value"
+                      :value="option.value"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </label>
+
+                <label class="field-block">
+                  <span class="field-label">标题模板</span>
+                  <input
+                    v-model="template.title"
+                    type="text"
+                    :placeholder="titlePlaceholder"
+                    class="field-input"
+                  >
+                </label>
+
+                <label
+                  v-if="template.node_type === 'rewrite'"
+                  class="field-block"
+                >
+                  <span class="field-label">Text 模板</span>
+                  <input
+                    v-model="template.text"
+                    type="text"
+                    :placeholder="textPlaceholder"
+                    class="field-input"
+                  >
+                  <span class="field-hint">保存到文本节点 config_data.text / original_text</span>
+                </label>
+
+                <label class="field-block">
+                  <span class="field-label">Prompt 模板</span>
+                  <input
+                    v-model="template.prompt"
+                    type="text"
+                    :placeholder="promptPlaceholder"
+                    class="field-input"
+                  >
+                  <span class="field-hint">文本节点会同步保存到 config_data.prompt / instruction</span>
+                </label>
+
+                <label class="field-block">
+                  <span class="field-label">连接关系</span>
+                  <span class="toggle-card">
+                    <span class="toggle-track">
+                      <input
+                        v-model="template.connect_parent"
+                        type="checkbox"
+                      >
+                      <span class="toggle-text">自动连接父节点到该子节点</span>
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div
+            v-else
+            class="empty-template"
+          >
+            暂无子节点模板
           </div>
         </section>
 
@@ -240,6 +285,19 @@
 import LoadingContainer from '@/components/common/LoadingContainer.vue'
 import { workflowNodeSchemaApi, createDefaultSchemaConfig } from '@/api/workflows'
 
+const createSubgraphTemplate = (overrides = {}) => ({
+  localId: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  node_key: 'scene:{{ index }}',
+  node_type: 'rewrite',
+  title: '{{ item.title }}',
+  text: '{{ item.text }}',
+  prompt: '{{ item.prompt }}',
+  connect_parent: true,
+  rawNode: {},
+  rawEdge: {},
+  ...overrides
+})
+
 export default {
   name: 'NodeSchemaForm',
   components: {
@@ -255,7 +313,12 @@ export default {
         is_active: true
       },
       schemaConfig: createDefaultSchemaConfig(),
-      graphJson: JSON.stringify(createDefaultSchemaConfig().materialization.graph, null, 2),
+      subgraphTemplates: [createSubgraphTemplate()],
+      nodeTypeOptions: [
+        { value: 'rewrite', label: '文本节点' },
+        { value: 'image_generation', label: '图片节点' },
+        { value: 'video_generation', label: '视频节点' }
+      ],
       loading: false,
       submitting: false
     }
@@ -263,6 +326,21 @@ export default {
   computed: {
     isEdit() {
       return !!this.$route.params.id
+    },
+    templateExample() {
+      return '{{ index }} / {{ item.title }}'
+    },
+    nodeKeyPlaceholder() {
+      return '例如: scene:{{ index }}'
+    },
+    titlePlaceholder() {
+      return '例如: {{ item.title }}'
+    },
+    textPlaceholder() {
+      return '例如: {{ item.text }}'
+    },
+    promptPlaceholder() {
+      return '例如: {{ item.prompt }}'
     }
   },
   async created() {
@@ -295,7 +373,7 @@ export default {
               ...(data.schema_config.materialization || {})
             }
           }
-          this.graphJson = JSON.stringify(this.schemaConfig.materialization.graph || { nodes: [], edges: [] }, null, 2)
+          this.subgraphTemplates = this.graphToTemplateForm(this.schemaConfig.materialization.graph)
         }
       } catch (error) {
         console.error('加载节点结构定义失败:', error)
@@ -306,26 +384,144 @@ export default {
       }
     },
 
+    graphToTemplateForm(graph = {}) {
+      const nodes = Array.isArray(graph.nodes) ? graph.nodes : []
+      const edges = Array.isArray(graph.edges) ? graph.edges : []
+      if (!nodes.length) {
+        return [createSubgraphTemplate()]
+      }
+
+      return nodes
+        .filter(node => node && typeof node === 'object')
+        .map(node => {
+          const nodeKey = String(node.node_key || node.key || '').trim()
+          const parentEdge = edges.find(edge => {
+            if (!edge || typeof edge !== 'object') return false
+            const source = String(edge.source_node || edge.source || '').trim()
+            const target = String(edge.target_node || edge.target || '').trim()
+            return source === '$parent' && target === nodeKey
+          })
+
+          return createSubgraphTemplate({
+            node_key: nodeKey || 'scene:{{ index }}',
+            node_type: this.normalizeNodeType(node.node_type),
+            title: String(node.title || '').trim(),
+            text: String((node.config_data || {}).text || (node.config_data || {}).original_text || '').trim(),
+            prompt: String((node.config_data || {}).prompt || (node.config_data || {}).instruction || '').trim(),
+            connect_parent: !!parentEdge,
+            rawNode: { ...node },
+            rawEdge: parentEdge ? { ...parentEdge } : {}
+          })
+        })
+    },
+
+    buildGraphFromTemplateForm() {
+      const templates = this.subgraphTemplates
+        .map(template => ({
+          ...template,
+          node_key: String(template.node_key || '').trim(),
+          node_type: String(template.node_type || '').trim(),
+          title: String(template.title || '').trim(),
+          text: String(template.text || '').trim(),
+          prompt: String(template.prompt || '').trim()
+        }))
+        .filter(template => template.node_key || template.node_type || template.title || template.text || template.prompt)
+
+      for (const template of templates) {
+        if (!template.node_key) {
+          this.$message?.error('请填写子节点标识')
+          return null
+        }
+        if (!template.node_type) {
+          this.$message?.error('请填写节点类型')
+          return null
+        }
+      }
+
+      const nodes = templates.map((template, index) => {
+        const rawNode = template.rawNode && typeof template.rawNode === 'object' ? template.rawNode : {}
+        const configData = rawNode.config_data && typeof rawNode.config_data === 'object' ? rawNode.config_data : {}
+        const node = {
+          ...rawNode,
+          node_key: template.node_key,
+          node_type: template.node_type,
+          title: template.title || template.node_key,
+          config_data: {
+            ...configData
+          }
+        }
+
+        if (template.node_type === 'rewrite') {
+          if (template.text) {
+            node.config_data.text = template.text
+            node.config_data.original_text = template.text
+          } else {
+            delete node.config_data.text
+            delete node.config_data.original_text
+          }
+        } else {
+          delete node.config_data.text
+          delete node.config_data.original_text
+        }
+
+        if (template.prompt) {
+          node.config_data.prompt = template.prompt
+          if (template.node_type === 'rewrite') {
+            node.config_data.instruction = template.prompt
+          }
+        } else {
+          delete node.config_data.prompt
+          delete node.config_data.instruction
+        }
+        if (!node.position_x) {
+          node.position_x = 480
+        }
+        if (!node.position_y) {
+          node.position_y = `{{ index * ${120 + index * 40} }}`
+        }
+        return node
+      })
+
+      const edges = templates
+        .filter(template => template.connect_parent)
+        .map(template => {
+          const rawEdge = template.rawEdge && typeof template.rawEdge === 'object' ? template.rawEdge : {}
+          return {
+            ...rawEdge,
+            edge_key: rawEdge.edge_key || `edge:parent:${template.node_key}`,
+            source_node: '$parent',
+            target_node: template.node_key
+          }
+        })
+
+      return { nodes, edges }
+    },
+
+    addSubgraphTemplate() {
+      this.subgraphTemplates.push(createSubgraphTemplate({
+        node_key: `scene_${this.subgraphTemplates.length + 1}:{{ index }}`
+      }))
+    },
+
+    removeSubgraphTemplate(index) {
+      this.subgraphTemplates.splice(index, 1)
+    },
+
+    isAllowedNodeType(nodeType) {
+      const value = String(nodeType || '').trim()
+      return this.nodeTypeOptions.some(option => option.value === value)
+    },
+
+    normalizeNodeType(nodeType) {
+      const value = String(nodeType || '').trim()
+      return this.isAllowedNodeType(value) ? value : 'rewrite'
+    },
+
     async handleSubmit() {
       this.submitting = true
       try {
-        let graph
-        try {
-          graph = JSON.parse(this.graphJson || '{}')
-        } catch (error) {
-          this.$message?.error('子图模板 JSON 格式不正确')
-          return
-        }
-        if (!graph || typeof graph !== 'object' || Array.isArray(graph)) {
-          this.$message?.error('子图模板 JSON 必须是对象')
-          return
-        }
-        if (graph.nodes && !Array.isArray(graph.nodes)) {
-          this.$message?.error('子图模板 JSON 的 nodes 必须是数组')
-          return
-        }
-        if (graph.edges && !Array.isArray(graph.edges)) {
-          this.$message?.error('子图模板 JSON 的 edges 必须是数组')
+        const graph = this.buildGraphFromTemplateForm()
+        if (!graph) {
           return
         }
 
@@ -333,11 +529,7 @@ export default {
           ...this.schemaConfig,
           materialization: {
             ...(this.schemaConfig.materialization || {}),
-            graph: {
-              ...graph,
-              nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
-              edges: Array.isArray(graph.edges) ? graph.edges : []
-            }
+            graph
           }
         }
         const payload = {
@@ -502,6 +694,86 @@ export default {
 
 .form-grid-spaced {
   margin-top: 1rem;
+}
+
+.subgraph-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.toolbar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.compact-action {
+  flex: 0 0 auto;
+  padding: 0.6rem 1rem;
+}
+
+.template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.template-item {
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(248, 250, 252, 0.82);
+}
+
+.layout-shell.theme-dark .template-item {
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.template-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: #0f172a;
+}
+
+.layout-shell.theme-dark .template-item-header {
+  color: #e2e8f0;
+}
+
+.text-action {
+  border: 0;
+  background: transparent;
+  color: #0f766e;
+  font-size: 0.88rem;
+  cursor: pointer;
+  padding: 0.25rem 0.35rem;
+}
+
+.layout-shell.theme-dark .text-action {
+  color: #5eead4;
+}
+
+.text-action:hover {
+  text-decoration: underline;
+}
+
+.empty-template {
+  padding: 1rem;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  color: #64748b;
+  background: rgba(248, 250, 252, 0.7);
+}
+
+.layout-shell.theme-dark .empty-template {
+  color: #94a3b8;
+  background: rgba(15, 23, 42, 0.72);
 }
 
 .field-block {
@@ -737,6 +1009,14 @@ export default {
 
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .subgraph-toolbar {
+    flex-direction: column;
+  }
+
+  .compact-action {
+    width: 100%;
   }
 
   .form-actions {

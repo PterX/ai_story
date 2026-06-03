@@ -472,10 +472,10 @@ export default {
         }
 
         if (!node.position_x) {
-          node.position_x = 480
+          node.position_x = 480 + (index % 2) * 480
         }
         if (!node.position_y) {
-          node.position_y = index * 320
+          node.position_y = Math.floor(index / 2) * 320
         }
         return node
       })

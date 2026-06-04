@@ -26,7 +26,7 @@ class AgentGateway:
         self.model_id = (getattr(settings, 'AGENT_MODEL_ID', '') or 'big-pickle').strip()
         self.model_variant = (getattr(settings, 'AGENT_MODEL_VARIANT', '') or '').strip()
         self.agent_name = (getattr(settings, 'AGENT_REMOTE_AGENT_NAME', '') or '').strip()
-        self.project_directory = str(getattr(settings, 'BASE_DIR').parent)
+        self.project_directory = getattr(settings, 'AGENT_SERVER_WORKSPACE_PATH')
         self.local_responder = LocalAgentResponder()
 
     def _headers(self):

@@ -1,3 +1,4 @@
+import base64
 import json
 import re
 from json import JSONDecodeError
@@ -33,16 +34,17 @@ class AgentGateway:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         }
-        if self.server_username and self.server_password:
-            session = requests.Session()
-            session.auth = (self.server_username, self.server_password)
-            headers.update(requests.utils.default_headers())
+        if self.server_password:
+            # 要编码的字符串
+            # 步骤：字符串 → bytes → base64
+            pwd = f"{self.server_username}:{self.server_password}"
+            bytes_data = pwd.encode("utf-8")  # 转成字节
+            base64_result = base64.b64encode(bytes_data).decode("utf-8")  
+            headers["Authorization"] = f"Basic {base64_result}"
         return headers
 
     def _session(self):
         session = requests.Session()
-        if self.server_username and self.server_password:
-            session.auth = (self.server_username, self.server_password)
         session.headers.update(self._headers())
         return session
 

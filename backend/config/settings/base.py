@@ -158,8 +158,8 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 AGENT_SERVER_BASE_URL = os.getenv('AGENT_SERVER_BASE_URL', 'http://127.0.0.1:9002').strip()
-AGENT_SERVER_USERNAME = os.getenv('AGENT_SERVER_USERNAME', 'opencode').strip()
-AGENT_SERVER_PASSWORD = os.getenv('AGENT_SERVER_PASSWORD', '').strip()
+AGENT_SERVER_USERNAME = os.getenv('AGENT_SERVER_USERNAME', '').strip()
+AGENT_SERVER_PASSWORD = os.getenv('AGENT_SERVER_PASSWORD', 'test').strip()
 MCP_ACCESS_TOKEN = os.getenv('MCP_ACCESS_TOKEN', 'test').strip()
 AGENT_MODEL_PROVIDER_ID = os.getenv('AGENT_MODEL_PROVIDER_ID', 'opencode').strip()
 AGENT_MODEL_ID = os.getenv('AGENT_MODEL_ID', 'big-pickle').strip()

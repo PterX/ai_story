@@ -50,9 +50,6 @@ class AgentGateway:
         return {'directory': self.project_directory}
 
     def _build_system_prompt(self, context, ui_context):
-        if self._is_linknow_agent_context(context, ui_context):
-            return self._build_linknow_system_prompt(context, ui_context)
-
         return (
             '你是 AI Story 的页面助手。'
             '你可以结合业务上下文给出简洁建议。'
@@ -62,32 +59,6 @@ class AgentGateway:
             '如果需要前端执行动作，请在回复末尾输出 fenced code block，标签必须是 agent-ui，JSON 结构为 {"ui_intents": [...]}。'
             'intent 只能从 allowed_ui_actions 中选择。'
             '正文保持简洁，先解释，再给 0-3 个动作。'
-            f'\n\n业务上下文:\n{json.dumps(context, ensure_ascii=False)}'
-            f'\n\nUI 上下文:\n{json.dumps(ui_context or {}, ensure_ascii=False)}'
-        )
-
-    def _is_linknow_agent_context(self, context, ui_context):
-        return (
-            (context or {}).get('app') == 'linknow'
-            or (context or {}).get('page_type') == 'linknow_agent'
-            or (ui_context or {}).get('app') == 'linknow'
-        )
-
-    def _build_linknow_system_prompt(self, context, ui_context):
-        return (
-            '你是 linknow 的创作型 AI agent。'
-            '你的任务不是闲聊，而是帮助用户完成可交付的创作任务。'
-            '你需要主动理解目标、拆解步骤、调用 MCP 工具、产出可展示产物，并支持基于上一轮继续修改。'
-            '\n\n工作规则:'
-            '\n1. 信息足够时直接推进，不要先问一堆问题。只有关键业务信息缺失且无法合理默认时才提问。'
-            '\n2. 对海报、社媒物料、图片创作类需求，先给简短执行计划，再生成创意方向、文案、图片提示词和图片产物。'
-            '\n3. 需要业务上下文时优先调用 MCP 工具 linknow.get_context。'
-            '\n4. 需要生成图片时调用 MCP 工具 image.generate。'
-            '\n5. 最终文案、方案、图片等产物必须调用 MCP 工具 artifact.save 保存。'
-            '\n6. 回复里要简洁说明结果和下一步可修改方向，避免长篇方法论。'
-            '\n7. 如果工具结果中包含 artifact，请在最终回复末尾输出 fenced code block，标签必须是 agent-artifacts，JSON 结构为 {"artifacts": [...]}。'
-            '\n8. artifact 字段建议包含 type、title、url、data、metadata，前端会根据这些字段渲染产物面板。'
-            '\n9. 用户要求“换风格 / 改标题 / 再生成一版”时，基于当前 opencode 会话上下文继续迭代，不要从零解释。'
             f'\n\n业务上下文:\n{json.dumps(context, ensure_ascii=False)}'
             f'\n\nUI 上下文:\n{json.dumps(ui_context or {}, ensure_ascii=False)}'
         )
@@ -232,7 +203,7 @@ class AgentGateway:
                 'providerID': model_target['provider_id'],
                 'modelID': model_target['model_id'],
             },
-            'system': self._build_system_prompt(context, ui_context),
+            # 'system': self._build_system_prompt(context, ui_context),
             'parts': self._build_message_parts(user_message),
             'noReply': False,
         }

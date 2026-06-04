@@ -1,6 +1,9 @@
 import json
+import queue
+import time
+import uuid
 
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -11,10 +14,33 @@ from apps.mcp.registry import list_tools
 from apps.mcp.tools import call_tool
 from apps.mcp.utils.presenters import tool_text_payload
 
+_SSE_SESSIONS = {}
+_SSE_SESSION_TIMEOUT_SECONDS = 30 * 60
+_SSE_HEARTBEAT_SECONDS = 15
+
+
+def _format_sse(event=None, data=None):
+    lines = []
+    if event:
+        lines.append(f'event: {event}')
+    lines.append(f'data: {json.dumps(data, ensure_ascii=False)}')
+    return ('\n'.join(lines) + '\n\n').encode('utf-8')
+
+
+def _cleanup_sse_sessions():
+    now = time.time()
+    expired_ids = [
+        session_id for session_id, session in _SSE_SESSIONS.items()
+        if now - session['created_at'] > _SSE_SESSION_TIMEOUT_SECONDS
+    ]
+    for session_id in expired_ids:
+        _SSE_SESSIONS.pop(session_id, None)
+
 
 @method_decorator(csrf_exempt, name='dispatch')
 class MCPServerView(View):
-    protocol_version = '2026-03-23'
+    supported_protocol_versions = ('2025-06-18', '2025-03-26', '2024-11-05')
+    protocol_version = supported_protocol_versions[0]
     server_name = 'ai-story-native-mcp'
     server_version = '0.1.0'
 
@@ -31,9 +57,10 @@ class MCPServerView(View):
             payload['error']['data'] = data
         return payload
 
-    def _initialize_result(self):
+    def _initialize_result(self, params=None):
+        protocol_version = self._negotiate_protocol_version(params or {})
         return {
-            'protocolVersion': self.protocol_version,
+            'protocolVersion': protocol_version,
             'capabilities': {
                 'tools': {'listChanged': False},
             },
@@ -44,10 +71,18 @@ class MCPServerView(View):
             'instructions': 'AI Story 原生 MCP 服务。当前提供项目、提示词、变量、模型与日志的首批只读工具。',
         }
 
+    def _negotiate_protocol_version(self, params):
+        requested_version = params.get('protocolVersion')
+        if requested_version in self.supported_protocol_versions:
+            return requested_version
+        return self.protocol_version
+
     def get(self, request, *args, **kwargs):
         auth_error = check_mcp_auth(request)
         if auth_error is not None:
             return auth_error
+        if self._wants_sse(request):
+            return self._sse_response(request)
         return JsonResponse(
             {
                 'name': self.server_name,
@@ -80,6 +115,39 @@ class MCPServerView(View):
         status_code = 200 if 'result' in response else 400
         return JsonResponse(response, status=status_code, json_dumps_params={'ensure_ascii': False})
 
+    def _wants_sse(self, request):
+        return 'text/event-stream' in request.headers.get('Accept', '')
+
+    def _sse_response(self, request):
+        _cleanup_sse_sessions()
+        session_id = uuid.uuid4().hex
+        session_queue = queue.Queue()
+        _SSE_SESSIONS[session_id] = {
+            'queue': session_queue,
+            'created_at': time.time(),
+        }
+        endpoint = request.build_absolute_uri(f'/mcp/messages/?session_id={session_id}')
+
+        def event_stream():
+            try:
+                yield f'event: endpoint\ndata: {endpoint}\n\n'.encode('utf-8')
+                while True:
+                    try:
+                        event = session_queue.get(timeout=_SSE_HEARTBEAT_SECONDS)
+                    except queue.Empty:
+                        yield b': keep-alive\n\n'
+                        continue
+                    if event is None:
+                        break
+                    yield _format_sse(data=event)
+            finally:
+                _SSE_SESSIONS.pop(session_id, None)
+
+        response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        return response
+
     def _handle_request(self, payload):
         if not isinstance(payload, dict):
             return self._jsonrpc_error(None, -32600, 'Invalid Request')
@@ -93,7 +161,7 @@ class MCPServerView(View):
         if method == 'notifications/initialized':
             return None
         if method == 'initialize':
-            return self._jsonrpc_result(request_id, self._initialize_result())
+            return self._jsonrpc_result(request_id, self._initialize_result(params))
         if method == 'ping':
             return self._jsonrpc_result(request_id, {})
         if method == 'tools/list':
@@ -113,3 +181,29 @@ class MCPServerView(View):
 
         return self._jsonrpc_error(request_id, -32601, 'Method not found', {'method': method})
 
+
+@method_decorator(csrf_exempt, name='dispatch')
+class MCPSSEMessageView(MCPServerView):
+    def get(self, request, *args, **kwargs):
+        return JsonResponse({'detail': 'Method not allowed'}, status=405)
+
+    def post(self, request, *args, **kwargs):
+        auth_error = check_mcp_auth(request)
+        if auth_error is not None:
+            return auth_error
+
+        session_id = request.GET.get('session_id', '').strip()
+        session = _SSE_SESSIONS.get(session_id)
+        if not session:
+            return JsonResponse({'detail': 'Invalid or expired MCP SSE session'}, status=404)
+
+        try:
+            payload = json.loads(request.body.decode('utf-8') or '{}')
+        except Exception:
+            session['queue'].put(self._jsonrpc_error(None, -32700, 'Parse error'))
+            return HttpResponse(status=202)
+
+        response = self._handle_request(payload)
+        if response is not None:
+            session['queue'].put(response)
+        return HttpResponse(status=202)

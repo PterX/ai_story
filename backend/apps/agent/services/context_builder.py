@@ -22,6 +22,15 @@ class AgentContextBuilder:
         route_params = route_params or {}
         ui_context = ui_context or {}
 
+        if scope_key.startswith('linknow:') or ui_context.get('app') == 'linknow' or route_name == 'LinknowAgent':
+            return self._build_linknow_context(
+                user=user,
+                scope_key=scope_key,
+                route_name=route_name,
+                route_params=route_params,
+                ui_context=ui_context,
+            )
+
         if scope_key.startswith('project_detail:') or route_name == 'ProjectDetail':
             project_id = route_params.get('id') or scope_key.split(':', 1)[-1]
             return self._build_project_detail(user=user, project_id=project_id, ui_context=ui_context)
@@ -30,6 +39,34 @@ class AgentContextBuilder:
             'page_type': 'generic',
             'title': route_name or '当前页面',
             'summary': '当前页面暂未接入专用业务上下文，我可以先基于页面结构提供导航和下一步建议。',
+            'ui_context': ui_context,
+        }
+
+    def _build_linknow_context(self, *, user, scope_key, route_name='', route_params=None, ui_context=None):
+        route_params = route_params or {}
+        ui_context = ui_context or {}
+        scene = ui_context.get('scene') or route_params.get('scene') or 'poster_creation'
+
+        return {
+            'page_type': 'linknow_agent',
+            'app': 'linknow',
+            'scene': scene,
+            'title': route_name or 'Linknow 创作助手',
+            'summary': '当前是 Linknow 创作型 agent 场景，目标是把用户输入推进为可展示、可保存、可继续修改的创作产物。',
+            'entities': {
+                'scope_key': scope_key,
+                'user_id': str(user.id),
+                'project_id': route_params.get('project_id') or ui_context.get('project_id') or '',
+                'canvas_id': route_params.get('canvas_id') or ui_context.get('canvas_id') or '',
+            },
+            'defaults': {
+                'poster_creation': {
+                    'platforms': ['朋友圈', '小红书'],
+                    'aspect_ratios': ['1:1', '3:4', '9:16'],
+                    'style': '高级、清晰、适合社交媒体发布',
+                    'deliverables': ['创意方向', '海报文案', '图片提示词', '图片产物'],
+                },
+            }.get(scene, {}),
             'ui_context': ui_context,
         }
 

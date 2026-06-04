@@ -1,4 +1,7 @@
 from apps.mcp.toolsets.content import TOOL_DEFINITIONS as CONTENT_TOOL_DEFINITIONS
+from apps.mcp.toolsets.artifacts import TOOL_DEFINITIONS as ARTIFACT_TOOL_DEFINITIONS
+from apps.mcp.toolsets.image import TOOL_DEFINITIONS as IMAGE_TOOL_DEFINITIONS
+from apps.mcp.toolsets.linknow import TOOL_DEFINITIONS as LINKNOW_TOOL_DEFINITIONS
 from apps.mcp.toolsets.models import TOOL_DEFINITIONS as MODELS_TOOL_DEFINITIONS
 from apps.mcp.toolsets.prompt_mutation import TOOL_DEFINITIONS as PROMPT_MUTATION_TOOL_DEFINITIONS
 from apps.mcp.toolsets.projects import TOOL_DEFINITIONS as PROJECTS_TOOL_DEFINITIONS
@@ -6,6 +9,24 @@ from apps.mcp.toolsets.prompts import TOOL_DEFINITIONS as PROMPTS_TOOL_DEFINITIO
 
 
 TOOLSET_GROUPS = [
+    {
+        'key': 'linknow',
+        'name': 'Linknow 创作上下文',
+        'description': 'Linknow 创作场景、页面上下文与默认交付规格。',
+        'tools': LINKNOW_TOOL_DEFINITIONS,
+    },
+    {
+        'key': 'image',
+        'name': '图片生成',
+        'description': '面向 agent 的文生图与图片产物生成工具。',
+        'tools': IMAGE_TOOL_DEFINITIONS,
+    },
+    {
+        'key': 'artifacts',
+        'name': '产物保存',
+        'description': '保存并返回前端可渲染的 agent 产物。',
+        'tools': ARTIFACT_TOOL_DEFINITIONS,
+    },
     {
         'key': 'projects',
         'name': '项目管理',
@@ -38,7 +59,16 @@ TOOLSET_GROUPS = [
     },
 ]
 
-TOOL_DEFINITIONS = PROJECTS_TOOL_DEFINITIONS + CONTENT_TOOL_DEFINITIONS + PROMPTS_TOOL_DEFINITIONS + PROMPT_MUTATION_TOOL_DEFINITIONS + MODELS_TOOL_DEFINITIONS
+TOOL_DEFINITIONS = (
+    LINKNOW_TOOL_DEFINITIONS
+    + IMAGE_TOOL_DEFINITIONS
+    + ARTIFACT_TOOL_DEFINITIONS
+    + PROJECTS_TOOL_DEFINITIONS
+    + CONTENT_TOOL_DEFINITIONS
+    + PROMPTS_TOOL_DEFINITIONS
+    + PROMPT_MUTATION_TOOL_DEFINITIONS
+    + MODELS_TOOL_DEFINITIONS
+)
 TOOLS_BY_NAME = {item['name']: item for item in TOOL_DEFINITIONS}
 
 

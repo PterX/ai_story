@@ -10,6 +10,36 @@ from apps.mcp.registry import list_tool_groups
 def get_mcp_module_plan():
     return [
         {
+            'key': 'linknow',
+            'name': 'Linknow 创作上下文',
+            'phase': 1,
+            'status': 'ready',
+            'risk_level': 'low',
+            'candidate_tools': [
+                'linknow.get_context',
+            ],
+        },
+        {
+            'key': 'image',
+            'name': '图片生成',
+            'phase': 1,
+            'status': 'ready',
+            'risk_level': 'medium',
+            'candidate_tools': [
+                'image.generate',
+            ],
+        },
+        {
+            'key': 'artifacts',
+            'name': '产物保存',
+            'phase': 1,
+            'status': 'ready',
+            'risk_level': 'low',
+            'candidate_tools': [
+                'artifact.save',
+            ],
+        },
+        {
             'key': 'projects',
             'name': '项目与作品查询',
             'phase': 1,

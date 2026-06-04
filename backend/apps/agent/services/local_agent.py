@@ -22,12 +22,55 @@ class LocalAgentResponder:
         allowed = set(ui_context.get('allowed_ui_actions') or [])
         page_type = context.get('page_type')
 
+        if page_type == 'linknow_agent':
+            return self._respond_linknow_agent(user_message=user_message, context=context)
+
         if page_type == 'project_detail':
             return self._respond_project_detail(user_message=user_message, context=context, allowed=allowed)
 
         return {
             'content': '当前页面还没有接入专用业务分析，我可以先帮助你理解页面结构和主要入口。',
             'ui_intents': [],
+        }
+
+    def _respond_linknow_agent(self, *, user_message, context):
+        goal = (user_message or '').strip() or '创作一张社交媒体海报'
+        scene = context.get('scene') or 'poster_creation'
+        title = goal[:28]
+        plan = [
+            '明确平台与受众',
+            '生成创意方向和主标题',
+            '整理图片提示词',
+            '保存可预览产物',
+        ]
+        artifact = {
+            'id': f'local-artifact-{int(time.time() * 1000)}',
+            'type': 'poster_plan',
+            'title': title,
+            'data': {
+                'scene': scene,
+                'goal': goal,
+                'directions': [
+                    {
+                        'name': '高级节日氛围',
+                        'headline': title,
+                        'body': '用清晰的利益点和节日视觉符号，突出活动主题。',
+                        'image_prompt': f'{goal}，高级商业海报，清晰构图，社交媒体封面，精致光影',
+                    }
+                ],
+                'plan': plan,
+            },
+            'metadata': {
+                'source': 'local_fallback',
+            },
+        }
+        return {
+            'content': (
+                '当前未连接远程 agent，我先给出一个可用于前端联调的创作产物示例。'
+                '接入 opencode 和 MCP 后，会自动调用工具生成真实图片与保存产物。'
+            ),
+            'ui_intents': [],
+            'artifacts': [artifact],
         }
 
     def _respond_project_detail(self, *, user_message, context, allowed):
@@ -101,6 +144,11 @@ class LocalAgentResponder:
             yield {
                 'type': 'ui_intent',
                 **intent,
+            }
+        for artifact in response.get('artifacts') or []:
+            yield {
+                'type': 'artifact',
+                'artifact': artifact,
             }
         yield {'type': 'done'}
 

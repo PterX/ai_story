@@ -3,7 +3,7 @@ import uuid
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.http import StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -161,25 +161,29 @@ class AgentSessionMessageView(APIView):
 class AgentSessionStreamView(APIView, AgentStreamAuthMixin):
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def _error_response(message, status_code):
+        return JsonResponse({'error': message}, status=status_code, json_dumps_params={'ensure_ascii': False})
+
     def get(self, request, scope_key):
         user = self._authenticate_stream_user(request)
         if not user:
-            return Response({'error': '未授权访问'}, status=status.HTTP_401_UNAUTHORIZED)
+            return self._error_response('未授权访问', status.HTTP_401_UNAUTHORIZED)
 
         stream_token = (request.query_params.get('stream_token') or '').strip()
         if not stream_token:
-            return Response({'error': '缺少 stream_token'}, status=status.HTTP_400_BAD_REQUEST)
+            return self._error_response('缺少 stream_token', status.HTTP_400_BAD_REQUEST)
 
         manager = AgentSessionManager()
         stream_payload = manager.get_stream_payload(stream_token)
         if not stream_payload:
-            return Response({'error': '流式令牌无效或已过期'}, status=status.HTTP_400_BAD_REQUEST)
+            return self._error_response('流式令牌无效或已过期', status.HTTP_400_BAD_REQUEST)
         if stream_payload.get('user_id') != user.id or stream_payload.get('scope_key') != scope_key:
-            return Response({'error': '无权访问该流式会话'}, status=status.HTTP_403_FORBIDDEN)
+            return self._error_response('无权访问该流式会话', status.HTTP_403_FORBIDDEN)
 
         session = manager.snapshot_session(user.id, scope_key)
         if not session:
-            return Response({'error': '会话不存在'}, status=status.HTTP_404_NOT_FOUND)
+            return self._error_response('会话不存在', status.HTTP_404_NOT_FOUND)
 
         context_builder = AgentContextBuilder()
         gateway = AgentGateway()

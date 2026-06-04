@@ -198,7 +198,8 @@
         <p>© {{ currentYear }} AI Story xhongc 版权所有</p>
       </footer>
 
-      <PageAgentLauncher />
+      <!-- 页面助手悬浮球入口暂时不用，保留组件代码便于后续恢复。 -->
+      <!-- <PageAgentLauncher /> -->
     </div>
 
     <!-- 移动端侧边栏 -->
@@ -434,12 +435,12 @@
 
 <script>
 import { mapGetters, mapActions } from 'vuex';
-import PageAgentLauncher from '@/components/assistant/PageAgentLauncher.vue';
+// import PageAgentLauncher from '@/components/assistant/PageAgentLauncher.vue';
 
 export default {
   name: 'Layout',
   components: {
-    PageAgentLauncher,
+    // PageAgentLauncher,
   },
   computed: {
     ...mapGetters('auth', ['username', 'user']),

@@ -10,16 +10,6 @@ from apps.mcp.registry import list_tool_groups
 def get_mcp_module_plan():
     return [
         {
-            'key': 'linknow',
-            'name': 'Linknow 创作上下文',
-            'phase': 1,
-            'status': 'ready',
-            'risk_level': 'low',
-            'candidate_tools': [
-                'linknow.get_context',
-            ],
-        },
-        {
             'key': 'image',
             'name': '图片生成',
             'phase': 1,
@@ -37,77 +27,6 @@ def get_mcp_module_plan():
             'risk_level': 'low',
             'candidate_tools': [
                 'artifact.save',
-            ],
-        },
-        {
-            'key': 'projects',
-            'name': '项目与作品查询',
-            'phase': 1,
-            'status': 'ready',
-            'risk_level': 'low',
-            'candidate_tools': [
-                'list_projects',
-                'get_project_detail',
-                'get_project_stages',
-                'list_series',
-                'get_series_detail',
-                'get_project_statistics',
-            ],
-        },
-        {
-            'key': 'prompts',
-            'name': '提示词与变量查询',
-            'phase': 1,
-            'status': 'ready',
-            'risk_level': 'low',
-            'candidate_tools': [
-                'list_prompt_template_sets',
-                'get_prompt_template_set_detail',
-                'list_prompt_templates',
-                'get_prompt_template_detail',
-                'preview_prompt_template',
-                'list_global_variables',
-            ],
-        },
-        {
-            'key': 'prompt_mutation',
-            'name': '提示词修改',
-            'phase': 2,
-            'status': 'partial',
-            'risk_level': 'medium',
-            'candidate_tools': [
-                'update_prompt_template',
-                'create_prompt_template_version',
-                'update_prompt_template_set',
-                'set_default_prompt_template_set',
-                'save_prompt_debug_session_to_template',
-                'save_prompt_debug_session_as_version',
-            ],
-        },
-        {
-            'key': 'models',
-            'name': '模型与日志查询',
-            'phase': 1,
-            'status': 'ready',
-            'risk_level': 'medium',
-            'candidate_tools': [
-                'list_model_providers',
-                'get_model_provider_detail',
-                'list_model_usage_logs',
-            ],
-        },
-        {
-            'key': 'mutations',
-            'name': '受控任务操作',
-            'phase': 2,
-            'status': 'partial',
-            'risk_level': 'medium',
-            'candidate_tools': [
-                'run_project_pipeline',
-                'pause_project',
-                'resume_project',
-                'execute_project_stage',
-                'get_project_task_status',
             ],
         },
     ]

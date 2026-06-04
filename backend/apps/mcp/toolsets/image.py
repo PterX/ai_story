@@ -3,6 +3,7 @@ from apps.workflows.node_executors.execute_image_generation import execute_image
 
 
 def _normalize_ratio(value):
+    """"""
     ratio = (value or '').strip()
     allowed = {'1:1', '3:4', '4:3', '9:16', '16:9'}
     return ratio if ratio in allowed else '1:1'

@@ -1,15 +1,8 @@
 from apps.mcp.toolsets.artifacts import TOOL_DEFINITIONS as ARTIFACT_TOOL_DEFINITIONS
 from apps.mcp.toolsets.image import TOOL_DEFINITIONS as IMAGE_TOOL_DEFINITIONS
-from apps.mcp.toolsets.linknow import TOOL_DEFINITIONS as LINKNOW_TOOL_DEFINITIONS
 
 
 TOOLSET_GROUPS = [
-    {
-        'key': 'linknow',
-        'name': 'Linknow 创作上下文',
-        'description': 'Linknow 创作场景、页面上下文与默认交付规格。',
-        'tools': LINKNOW_TOOL_DEFINITIONS,
-    },
     {
         'key': 'image',
         'name': '图片生成',
@@ -25,8 +18,7 @@ TOOLSET_GROUPS = [
 ]
 
 TOOL_DEFINITIONS = (
-    LINKNOW_TOOL_DEFINITIONS
-    + IMAGE_TOOL_DEFINITIONS
+    IMAGE_TOOL_DEFINITIONS
     + ARTIFACT_TOOL_DEFINITIONS
 )
 TOOLS_BY_NAME = {item['name']: item for item in TOOL_DEFINITIONS}

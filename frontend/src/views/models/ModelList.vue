@@ -156,6 +156,12 @@
                 {{ provider.is_active ? '停用' : '启用' }}
               </button>
               <button
+                class="ghost-action"
+                @click.stop="handleClone(provider)"
+              >
+                克隆
+              </button>
+              <button
                 class="ghost-action danger"
                 @click.stop="handleDelete(provider)"
               >
@@ -305,6 +311,10 @@ export default {
 
     handleEdit(provider) {
       this.$router.push({ name: 'model-edit', params: { id: provider.id } })
+    },
+
+    handleClone(provider) {
+      this.$router.push({ name: 'model-clone', params: { id: provider.id } })
     },
 
     async handleToggleStatus(provider) {

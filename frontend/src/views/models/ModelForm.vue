@@ -3,10 +3,10 @@
     <div class="page-header">
       <div class="page-header-main">
         <h1 class="page-title">
-          {{ isEdit ? '编辑模型' : '添加模型' }}
+          {{ pageTitle }}
         </h1>
         <p class="page-subtitle">
-          {{ isEdit ? '更新模型配置与运行参数' : '创建单个模型提供商，适用于自定义地址或手动维护' }}
+          {{ pageSubtitle }}
         </p>
       </div>
       <div class="header-actions">
@@ -56,7 +56,7 @@
                 v-model="formData.provider_type"
                 class="field-input"
                 required
-                :disabled="isEdit"
+                :disabled="isProviderTypeLocked"
                 @change="handleProviderTypeChange"
               >
                 <option value="">
@@ -406,7 +406,7 @@
             class="primary-action"
             :disabled="submitting"
           >
-            <span>{{ submitting ? '保存中...' : '保存' }}</span>
+            <span>{{ submitting ? '保存中...' : submitButtonText }}</span>
           </button>
           <button
             type="button"
@@ -426,6 +426,40 @@
 import { mapActions, mapState } from 'vuex'
 import LoadingContainer from '@/components/common/LoadingContainer.vue'
 
+const createDefaultFormData = () => ({
+  name: '',
+  provider_type: '',
+  api_url: '',
+  api_key: '',
+  model_name: '',
+  executor_class: '',
+  max_tokens: 4096,
+  temperature: 0.7,
+  top_p: 1.0,
+  timeout: 180,
+  is_active: true,
+  priority: 0,
+  rate_limit_rpm: 60,
+  rate_limit_rpd: 1000,
+  extra_config: {}
+})
+
+const createDefaultExtraConfig = () => ({
+  width: 1024,
+  height: 1024,
+  fps: 24,
+  duration: 5,
+  strength: 0.35
+})
+
+const appendCopySuffix = (name) => {
+  const baseName = String(name || '').trim()
+  const nextName = baseName ? `${baseName} 副本` : '模型副本'
+  return nextName.slice(0, 255)
+}
+
+const valueOrDefault = (value, defaultValue) => (value === undefined || value === null ? defaultValue : value)
+
 export default {
   name: 'ModelForm',
   components: {
@@ -433,30 +467,8 @@ export default {
   },
   data() {
     return {
-      formData: {
-        name: '',
-        provider_type: '',
-        api_url: '',
-        api_key: '',
-        model_name: '',
-        executor_class: '',
-        max_tokens: 4096,
-        temperature: 0.7,
-        top_p: 1.0,
-        timeout: 180,
-        is_active: true,
-        priority: 0,
-        rate_limit_rpm: 60,
-        rate_limit_rpd: 1000,
-        extra_config: {}
-      },
-      extraConfig: {
-        width: 1024,
-        height: 1024,
-        fps: 24,
-        duration: 5,
-        strength: 0.35
-      },
+      formData: createDefaultFormData(),
+      extraConfig: createDefaultExtraConfig(),
       availableExecutors: [],
       loadingExecutors: false,
       submitting: false
@@ -468,24 +480,60 @@ export default {
       loading: (state) => state.loading.currentProvider
     }),
     isEdit() {
-      return !!this.$route.params.id
+      return this.$route.name === 'model-edit'
+    },
+    isClone() {
+      return this.$route.name === 'model-clone'
+    },
+    isProviderTypeLocked() {
+      return this.isEdit || this.isClone
+    },
+    pageTitle() {
+      if (this.isClone) {
+        return '克隆模型'
+      }
+      return this.isEdit ? '编辑模型' : '添加模型'
+    },
+    pageSubtitle() {
+      if (this.isClone) {
+        return '基于现有模型复制配置，调整别名或参数后创建新模型'
+      }
+      return this.isEdit ? '更新模型配置与运行参数' : '创建单个模型提供商，适用于自定义地址或手动维护'
+    },
+    submitButtonText() {
+      if (this.isClone) {
+        return '创建克隆'
+      }
+      return '保存'
     }
   },
+  watch: {
+    '$route.name': 'initializeForm',
+    '$route.params.id': 'initializeForm'
+  },
   async created() {
-    if (this.isEdit) {
-      await this.loadProvider()
-    }
+    await this.initializeForm()
   },
   methods: {
     ...mapActions('models', ['fetchProvider', 'createProvider', 'updateProvider']),
 
+    async initializeForm() {
+      this.formData = createDefaultFormData()
+      this.extraConfig = createDefaultExtraConfig()
+      this.availableExecutors = []
+
+      if (this.isEdit || this.isClone) {
+        await this.loadProvider()
+      }
+    },
+
     async loadProvider() {
       try {
         const provider = await this.fetchProvider(this.$route.params.id)
-        this.formData = { ...this.formData, ...provider }
+        this.formData = this.normalizeProviderFormData(provider)
 
         if (provider.extra_config) {
-          this.extraConfig = { ...this.extraConfig, ...provider.extra_config }
+          this.extraConfig = { ...createDefaultExtraConfig(), ...provider.extra_config }
         }
 
         if (provider.provider_type) {
@@ -496,6 +544,34 @@ export default {
         await this.$alert('加载模型失败', '加载失败', { tone: 'error' })
         this.$router.push({ name: 'ModelList' })
       }
+    },
+
+    normalizeProviderFormData(provider) {
+      const defaultFormData = createDefaultFormData()
+      const formData = {
+        ...defaultFormData,
+        name: provider.name || '',
+        provider_type: provider.provider_type || '',
+        api_url: provider.api_url || '',
+        api_key: provider.api_key || '',
+        model_name: provider.model_name || '',
+        executor_class: provider.executor_class || '',
+        max_tokens: valueOrDefault(provider.max_tokens, defaultFormData.max_tokens),
+        temperature: valueOrDefault(provider.temperature, defaultFormData.temperature),
+        top_p: valueOrDefault(provider.top_p, defaultFormData.top_p),
+        timeout: valueOrDefault(provider.timeout, defaultFormData.timeout),
+        is_active: valueOrDefault(provider.is_active, defaultFormData.is_active),
+        priority: valueOrDefault(provider.priority, defaultFormData.priority),
+        rate_limit_rpm: valueOrDefault(provider.rate_limit_rpm, defaultFormData.rate_limit_rpm),
+        rate_limit_rpd: valueOrDefault(provider.rate_limit_rpd, defaultFormData.rate_limit_rpd),
+        extra_config: provider.extra_config || {}
+      }
+
+      if (this.isClone) {
+        formData.name = appendCopySuffix(provider.name)
+      }
+
+      return formData
     },
 
     async handleProviderTypeChange() {
@@ -532,14 +608,31 @@ export default {
       }
     },
 
+    buildSubmitData() {
+      return {
+        name: this.formData.name,
+        provider_type: this.formData.provider_type,
+        api_url: this.formData.api_url,
+        api_key: this.formData.api_key,
+        model_name: this.formData.model_name,
+        executor_class: this.formData.executor_class,
+        max_tokens: this.formData.max_tokens,
+        temperature: this.formData.temperature,
+        top_p: this.formData.top_p,
+        timeout: this.formData.timeout,
+        is_active: this.formData.is_active,
+        priority: this.formData.priority,
+        rate_limit_rpm: this.formData.rate_limit_rpm,
+        rate_limit_rpd: this.formData.rate_limit_rpd,
+        extra_config: this.extraConfig
+      }
+    },
+
     async handleSubmit() {
       this.submitting = true
 
       try {
-        const submitData = {
-          ...this.formData,
-          extra_config: this.extraConfig
-        }
+        const submitData = this.buildSubmitData()
 
         if (this.isEdit) {
           await this.updateProvider({
@@ -549,7 +642,7 @@ export default {
           await this.$alert('更新成功', '操作完成', { tone: 'success' })
         } else {
           await this.createProvider(submitData)
-          await this.$alert('创建成功', '操作完成', { tone: 'success' })
+          await this.$alert(this.isClone ? '克隆成功' : '创建成功', '操作完成', { tone: 'success' })
         }
 
         this.$router.push({ name: 'ModelList' })

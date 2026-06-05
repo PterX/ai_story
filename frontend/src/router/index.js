@@ -218,6 +218,12 @@ const routes = [
         meta: { title: '批量添加厂商模型' },
       },
       {
+        path: ':id/clone',
+        name: 'model-clone',
+        component: () => import('@/views/models/ModelForm.vue'),
+        meta: { title: '克隆模型' },
+      },
+      {
         path: ':id/edit',
         name: 'model-edit',
         component: () => import('@/views/models/ModelForm.vue'),

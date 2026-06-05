@@ -15,6 +15,7 @@ from apps.ai_proxy.views import (
     _pick_provider,
 )
 
+from .image_input_helpers import prepare_image_inputs_for_api
 from .response_helpers import extract_image_url, normalize_image_response
 
 
@@ -29,6 +30,7 @@ def _build_image_context(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     source_image_url = input_payload.get('source_image_url')
     if source_image_url and source_image_url not in reference_images:
         reference_images.insert(0, source_image_url)
+    prepared_images = prepare_image_inputs_for_api(reference_images, prefer_online_url=True)
 
     return {
         'model': input_payload.get('model', ''),
@@ -37,7 +39,8 @@ def _build_image_context(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'mask': input_payload.get('mask') or input_payload.get('mask_image') or '',
         'width': width,
         'height': height,
-        'reference_images': reference_images,
+        'reference_images': prepared_images['api_image_inputs'],
+        'original_reference_images': prepared_images['original_urls'],
         'aspect_ratio': input_payload.get('aspect_ratio') or input_payload.get('ratio') or '',
         'sample_count': _parse_int(input_payload.get('n'), _parse_int(input_payload.get('sample_count'), 1)) or 1,
         'seed': _parse_int(input_payload.get('seed')),
@@ -166,7 +169,7 @@ def execute_image_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'model': context['model'] or provider.model_name,
         'scale': input_payload.get('scale') or '1x',
         'resolution': context['extra'].get('resolution') or input_payload.get('resolution') or '2k',
-        'source_image_url': (context['reference_images'] or [''])[0] if context['reference_images'] else '',
+        'source_image_url': (context['original_reference_images'] or [''])[0] if context['original_reference_images'] else '',
         'text': input_payload.get('text') or '',
     }
     return {

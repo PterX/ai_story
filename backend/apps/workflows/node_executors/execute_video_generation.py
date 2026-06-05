@@ -7,6 +7,7 @@ from typing import Any, Dict
 from apps.ai_proxy.views import _build_provider_payload, _ensure_list, _parse_int, _pick_provider
 from core.ai_client.factory import create_ai_client
 
+from .image_input_helpers import prepare_image_inputs_for_api
 from .response_helpers import extract_video_url, normalize_video_result
 
 
@@ -20,6 +21,11 @@ def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         image_inputs.insert(0, image_input)
     image_base64 = input_payload.get('image_base64')
     image_base64s = _ensure_list(input_payload.get('image_base64s'))
+    prepared_images = prepare_image_inputs_for_api(image_inputs)
+    api_image_inputs = prepared_images['api_image_inputs']
+    for prepared_base64 in prepared_images['image_base64s']:
+        if prepared_base64 not in image_base64s:
+            image_base64s.append(prepared_base64)
 
     if not prompt:
         raise RuntimeError('prompt 不能为空')
@@ -34,11 +40,11 @@ def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     raw_result = client._generate_video(
         prompt=prompt,
         model=provider.model_name,
-        image_uri=image_inputs[0] if image_inputs else '',
-        image_uris=image_inputs,
+        image_uri=api_image_inputs[0] if api_image_inputs else '',
+        image_uris=api_image_inputs,
         image_base64=image_base64,
         image_base64s=image_base64s,
-        image_mime_type=input_payload.get('image_mime_type', 'image/jpeg'),
+        image_mime_type=input_payload.get('image_mime_type') or prepared_images['image_mime_type'] or 'image/jpeg',
         duration_seconds=_parse_int(input_payload.get('duration_seconds'), _parse_int(input_payload.get('duration'), 5)) or 5,
         sample_count=_parse_int(input_payload.get('sample_count'), _parse_int(input_payload.get('n'), 1)) or 1,
         aspect_ratio=input_payload.get('aspect_ratio') or input_payload.get('ratio') or '16:9',
@@ -77,7 +83,7 @@ def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'duration': input_payload.get('duration') or '5s',
         'aspectRatio': input_payload.get('aspect_ratio') or input_payload.get('aspectRatio') or '16:9',
         'resolution': input_payload.get('resolution') or '720p',
-        'image_urls': image_inputs,
+        'image_urls': prepared_images['original_urls'],
         'text': input_payload.get('text') or '',
     }
     return {

@@ -1,15 +1,23 @@
 import uuid
+import tempfile
+from pathlib import Path
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from core.ai_client.base import AIResponse
+
 from apps.content.models import ContentRewrite, GeneratedImage, Storyboard
 from apps.projects.models import Project, ProjectStage, Series
+from apps.workflows.node_schema_runtime import prepare_node_run_input_payload
+from apps.workflows.node_executors.execute_image_generation import execute_image_generation
 from apps.workflows.node_executors.execute_rewrite import execute_rewrite
+from apps.workflows.node_executors.execute_video_generation import execute_video_generation
 from apps.workflows.node_executors.lifecycle import finalize_success
 from apps.workflows.models import (
     WorkflowCallbackEvent,
@@ -922,6 +930,210 @@ class ExecuteRewriteNodeExecutorTestCase(APITestCase):
 
         request_payload = mock_post.call_args.kwargs['json']
         self.assertEqual(request_payload['messages'][0]['content'], '你是短剧编辑')
+
+
+class WorkflowImageInputRuntimeTestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='image-input-user', password='secret123')
+        self.series = Series.objects.create(name='图片输入作品', description='desc', user=self.user)
+        self.project = Project.objects.create(
+            user=self.user,
+            series=self.series,
+            episode_number=1,
+            sort_order=1,
+            episode_title='第1集',
+            name='第1集',
+            original_topic='原始文案',
+        )
+        initialize_project(self.project)
+        self.canvas = WorkflowCanvas.objects.create(
+            name='图片输入画板',
+            project=self.project,
+            series=self.series,
+            created_by=self.user,
+            status='active',
+        )
+
+    def test_prepare_payload_adds_completed_upstream_image_output(self):
+        workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
+        image_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='image_node',
+            node_type='image_generation',
+            title='图片',
+            status='completed',
+        )
+        video_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='video_node',
+            node_type='video_generation',
+            title='视频',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='image-to-video',
+            source_node=image_node,
+            target_node=video_node,
+        )
+        WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=image_node,
+            node_key='image_node',
+            node_type='image_generation',
+            status='completed',
+            normalized_output={
+                'image_url': '/api/v1/content/storage/image/2026-06-05/upstream.png',
+            },
+        )
+        video_run = WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=video_node,
+            node_key='video_node',
+            node_type='video_generation',
+            status='pending',
+            input_payload={'prompt': '生成视频', 'model': 'video-model'},
+        )
+
+        payload = prepare_node_run_input_payload(video_run)
+
+        self.assertEqual(payload['image_url'], '/api/v1/content/storage/image/2026-06-05/upstream.png')
+        self.assertEqual(payload['image_urls'], ['/api/v1/content/storage/image/2026-06-05/upstream.png'])
+
+    def test_prepare_image_generation_payload_prefers_upstream_online_url(self):
+        workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
+        source_image_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='source_image_node',
+            node_type='image_generation',
+            title='上游图片',
+            status='completed',
+        )
+        target_image_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='target_image_node',
+            node_type='image_generation',
+            title='下游图片',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='image-to-image',
+            source_node=source_image_node,
+            target_node=target_image_node,
+        )
+        WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=source_image_node,
+            node_key='source_image_node',
+            node_type='image_generation',
+            status='completed',
+            normalized_output={
+                'image_url': '/api/v1/content/storage/image/2026-06-05/local.png',
+            },
+            output_payload={
+                'data': [
+                    {
+                        'url': '/api/v1/content/storage/image/2026-06-05/local.png',
+                        'original_url': 'https://cdn.example.com/original.png',
+                    }
+                ],
+            },
+        )
+        target_run = WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=target_image_node,
+            node_key='target_image_node',
+            node_type='image_generation',
+            status='pending',
+            input_payload={'prompt': '生成图片', 'model': 'image-model'},
+        )
+
+        payload = prepare_node_run_input_payload(target_run)
+
+        self.assertEqual(payload['source_image_url'], 'https://cdn.example.com/original.png')
+        self.assertEqual(payload['source_images'], ['https://cdn.example.com/original.png'])
+
+    @patch('apps.workflows.node_executors.execute_image_generation.create_ai_client')
+    @patch('apps.workflows.node_executors.execute_image_generation.ImageGenerationService.edit')
+    @patch('apps.workflows.node_executors.execute_image_generation._pick_provider')
+    def test_image_generation_converts_storage_reference_to_data_url(self, mock_pick_provider, mock_edit, mock_create_client):
+        with tempfile.TemporaryDirectory() as storage_root:
+            image_path = Path(storage_root) / 'image' / '2026-06-05' / 'source.png'
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(b'\x89PNG\r\n\x1a\nlocal-image')
+
+            mock_pick_provider.return_value = SimpleNamespace(
+                id=uuid.uuid4(),
+                name='Image Edit Provider',
+                provider_type='image_edit',
+                get_provider_type_display=lambda: '图片编辑',
+                model_name='image-edit-model',
+                api_url='https://example.com/v1/images/edits',
+                api_key='secret',
+            )
+            mock_create_client.return_value = SimpleNamespace()
+            mock_edit.return_value = AIResponse(
+                success=True,
+                data=[{'url': '/api/v1/content/storage/image/2026-06-05/generated.png'}],
+            )
+
+            with override_settings(STORAGE_ROOT=Path(storage_root)):
+                result = execute_image_generation({
+                    'prompt': '基于参考图生成',
+                    'model': 'image-edit-model',
+                    'mode': 'img2img',
+                    'source_image_url': '/api/v1/content/storage/image/2026-06-05/source.png',
+                })
+
+        request = mock_edit.call_args.args[1]
+        self.assertTrue(request.source_images[0].startswith('data:image/png;base64,'))
+        self.assertEqual(
+            result['normalized_output']['source_image_url'],
+            '/api/v1/content/storage/image/2026-06-05/source.png',
+        )
+
+    @patch('apps.workflows.node_executors.execute_video_generation.create_ai_client')
+    @patch('apps.workflows.node_executors.execute_video_generation._pick_provider')
+    def test_video_generation_converts_storage_image_to_base64(self, mock_pick_provider, mock_create_client):
+        with tempfile.TemporaryDirectory() as storage_root:
+            image_path = Path(storage_root) / 'image' / '2026-06-05' / 'source.png'
+            image_path.parent.mkdir(parents=True, exist_ok=True)
+            image_path.write_bytes(b'\x89PNG\r\n\x1a\nlocal-image')
+
+            mock_pick_provider.return_value = SimpleNamespace(
+                id=uuid.uuid4(),
+                name='Video Provider',
+                provider_type='image2video',
+                get_provider_type_display=lambda: '图生视频',
+                model_name='video-model',
+                api_url='https://example.com/v1/videos',
+                api_key='secret',
+            )
+            client = SimpleNamespace(
+                _generate_video=lambda **kwargs: {
+                    'success': True,
+                    'data': [{'url': '/api/v1/content/storage/video/2026-06-05/generated.mp4'}],
+                    'metadata': {'request_kwargs': kwargs},
+                }
+            )
+            mock_create_client.return_value = client
+
+            with override_settings(STORAGE_ROOT=Path(storage_root)):
+                result = execute_video_generation({
+                    'prompt': '生成视频',
+                    'model': 'video-model',
+                    'image_urls': ['/api/v1/content/storage/image/2026-06-05/source.png'],
+                })
+
+        request_kwargs = result['output_payload']['metadata']['request_kwargs']
+        self.assertEqual(request_kwargs['image_mime_type'], 'image/png')
+        self.assertEqual(len(request_kwargs['image_base64s']), 1)
+        self.assertEqual(result['normalized_output']['image_urls'], ['/api/v1/content/storage/image/2026-06-05/source.png'])
 
 
 class WorkflowNodeSchemaRuntimeTestCase(APITestCase):

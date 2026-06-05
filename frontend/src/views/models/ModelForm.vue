@@ -443,7 +443,7 @@ export default {
         max_tokens: 4096,
         temperature: 0.7,
         top_p: 1.0,
-        timeout: 60,
+        timeout: 180,
         is_active: true,
         priority: 0,
         rate_limit_rpm: 60,

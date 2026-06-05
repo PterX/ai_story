@@ -370,7 +370,7 @@ export default {
         capability: 'llm',
         api_key: '',
         is_active: true,
-        timeout: 60,
+        timeout: 180,
         max_tokens: 40960,
         temperature: 0.7,
         top_p: 1,

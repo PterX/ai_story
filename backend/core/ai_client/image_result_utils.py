@@ -13,7 +13,8 @@ import requests
 from core.utils.file_storage import image_storage
 
 
-IMAGE_MARKDOWN_PATTERN = re.compile(r'!\[[^\]]*\]\((https?://[^)]+)\)')
+IMAGE_MARKDOWN_PATTERN = re.compile(r'!\[[^\]]*\]\(([^)]+)\)')
+DATA_IMAGE_PATTERN = re.compile(r'data:image/[^;\s)]+;base64,[A-Za-z0-9+/=\s]+')
 URL_PATTERN = re.compile(r'https?://\S+')
 
 
@@ -95,10 +96,32 @@ def save_b64_image_to_storage(b64_json: str) -> dict:
     }
 
 
+def image_item_from_data_url(data_url: str) -> dict:
+    """将 data:image/...;base64,... 转成统一的 b64_json 图片项。"""
+    if not isinstance(data_url, str):
+        return {}
+
+    value = data_url.strip()
+    if not value.startswith('data:image/') or ';base64,' not in value:
+        return {}
+
+    _, encoded = value.split(';base64,', 1)
+    encoded = ''.join(encoded.split())
+    if not encoded:
+        return {}
+
+    return {'b64_json': encoded, 'original_url': value}
+
+
 def localize_image_item(item: dict, width: int, height: int, timeout: int) -> dict:
     """将单个图片结果本地化到统一存储。"""
     image_url = item.get('url', '')
     b64_json = item.get('b64_json', '')
+    data_url_item = image_item_from_data_url(image_url)
+    if data_url_item:
+        image_url = ''
+        b64_json = data_url_item['b64_json']
+
     localized = {
         'width': item.get('width', width),
         'height': item.get('height', height),
@@ -121,6 +144,84 @@ def localize_image_item(item: dict, width: int, height: int, timeout: int) -> di
         return localized
 
     return localized
+
+
+def image_item_from_value(value: Any) -> dict:
+    """将单个返回值归一化为图片项。"""
+    if not isinstance(value, str):
+        return {}
+
+    data_url_item = image_item_from_data_url(value)
+    if data_url_item:
+        return data_url_item
+
+    if value.startswith('http://') or value.startswith('https://'):
+        return {'url': value}
+
+    return {}
+
+
+def extract_image_items_from_content(content: Any) -> List[dict]:
+    """从字符串或多段消息内容中提取图片结果项。"""
+    if not content:
+        return []
+
+    if isinstance(content, str):
+        items = []
+        for candidate in IMAGE_MARKDOWN_PATTERN.findall(content):
+            cleaned = candidate.strip()
+            item = image_item_from_value(cleaned)
+            if item:
+                items.append(item)
+
+        if items:
+            return items
+
+        for candidate in DATA_IMAGE_PATTERN.findall(content):
+            item = image_item_from_value(candidate)
+            if item:
+                items.append(item)
+
+        for candidate in URL_PATTERN.findall(content):
+            cleaned = candidate.rstrip(').,]\n\r\t ')
+            item = image_item_from_value(cleaned)
+            if item:
+                items.append(item)
+
+        return items
+
+    if isinstance(content, list):
+        items: List[dict] = []
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+
+            image_url = item.get('image_url')
+            if isinstance(image_url, dict):
+                normalized = image_item_from_value(image_url.get('url'))
+                if normalized:
+                    items.append(normalized)
+            elif isinstance(image_url, str):
+                normalized = image_item_from_value(image_url)
+                if normalized:
+                    items.append(normalized)
+
+            direct_item = image_item_from_value(item.get('url'))
+            if direct_item:
+                items.append(direct_item)
+
+            b64_json = item.get('b64_json')
+            if isinstance(b64_json, str) and b64_json:
+                items.append({'b64_json': ''.join(b64_json.split())})
+
+            for key in ('text', 'content'):
+                nested_text = item.get(key)
+                if isinstance(nested_text, str):
+                    items.extend(extract_image_items_from_content(nested_text))
+
+        return items
+
+    return []
 
 
 def extract_image_urls_from_content(content: Any) -> List[str]:

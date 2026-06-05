@@ -10,7 +10,7 @@ import requests
 from core.ai_client.base import AIResponse, Text2ImageClient as BaseText2ImageClient
 from core.ai_client.image_result_utils import (
     ensure_list,
-    extract_image_urls_from_content,
+    extract_image_items_from_content,
     localize_image_item,
     merge_extra_payload,
     normalize_result_data,
@@ -170,11 +170,11 @@ class ChatCompletionsImageExecutor(BaseText2ImageClient):
 
             message = choices[0].get('message', {})
             message_content = message.get('content', '')
-            image_urls = extract_image_urls_from_content(message_content)
-            if not image_urls:
+            image_items = extract_image_items_from_content(message_content)
+            if not image_items:
                 return AIResponse(
                     success=False,
-                    error='响应格式错误: 未从返回内容中解析到图片URL',
+                    error='响应格式错误: 未从返回内容中解析到图片结果',
                     metadata={
                         'latency_ms': latency_ms,
                         'model': request_model,
@@ -184,9 +184,9 @@ class ChatCompletionsImageExecutor(BaseText2ImageClient):
                 )
 
             images_data = []
-            for image_url in image_urls:
+            for image_item in image_items:
                 localized = localize_image_item(
-                    item={'url': image_url},
+                    item=image_item,
                     width=request.width or 1024,
                     height=request.height or 1024,
                     timeout=timeout,

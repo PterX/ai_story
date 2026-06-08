@@ -3,6 +3,19 @@ const webpack = require('webpack');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const { VueLoaderPlugin } = require('vue-loader');
 
+const normalizeBasePath = (value = '/') => {
+  if (!value || value === '/') {
+    return '/';
+  }
+  const withLeadingSlash = value.startsWith('/') ? value : `/${value}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash : `${withLeadingSlash}/`;
+};
+
+const appBasePath = normalizeBasePath(process.env.APP_BASE_PATH || process.env.BASE_URL || '/');
+const sseBaseUrl = Object.prototype.hasOwnProperty.call(process.env, 'VUE_APP_SSE_BASE_URL')
+  ? process.env.VUE_APP_SSE_BASE_URL
+  : 'http://localhost:8010';
+
 module.exports = {
   entry: {
     app: './src/main.js',
@@ -11,7 +24,7 @@ module.exports = {
     path: path.resolve(__dirname, '../../dist'),
     filename: 'js/[name].[contenthash:8].js',
     clean: true,
-    publicPath: '/',
+    publicPath: appBasePath,
   },
   resolve: {
     extensions: ['.js', '.vue', '.json'],
@@ -71,7 +84,9 @@ module.exports = {
     new webpack.DefinePlugin({
       'process.env': {
         NODE_ENV: JSON.stringify(process.env.NODE_ENV || 'development'),
-        BASE_URL: JSON.stringify('/'),
+        BASE_URL: JSON.stringify(appBasePath),
+        VUE_APP_API_BASE_URL: JSON.stringify(process.env.VUE_APP_API_BASE_URL || '/api/v1'),
+        VUE_APP_SSE_BASE_URL: JSON.stringify(sseBaseUrl),
         VUE_APP_API_URL: JSON.stringify(process.env.VUE_APP_API_URL || 'http://localhost:8000'),
         VUE_APP_WS_URL: JSON.stringify(process.env.VUE_APP_WS_URL || 'ws://localhost:8000'),
       },

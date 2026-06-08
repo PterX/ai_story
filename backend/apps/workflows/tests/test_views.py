@@ -1002,6 +1002,62 @@ class WorkflowImageInputRuntimeTestCase(APITestCase):
         self.assertEqual(payload['image_url'], '/api/v1/content/storage/image/2026-06-05/upstream.png')
         self.assertEqual(payload['image_urls'], ['/api/v1/content/storage/image/2026-06-05/upstream.png'])
 
+    def test_prepare_video_generation_payload_prefers_upstream_online_url(self):
+        workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
+        image_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='image_node',
+            node_type='image_generation',
+            title='图片',
+            status='completed',
+        )
+        video_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='video_node',
+            node_type='video_generation',
+            title='视频',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='image-to-video',
+            source_node=image_node,
+            target_node=video_node,
+        )
+        WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=image_node,
+            node_key='image_node',
+            node_type='image_generation',
+            status='completed',
+            normalized_output={
+                'image_url': '/api/v1/content/storage/image/2026-06-05/local.png',
+            },
+            output_payload={
+                'data': [
+                    {
+                        'url': '/api/v1/content/storage/image/2026-06-05/local.png',
+                        'original_url': 'https://cdn.example.com/original.png',
+                    }
+                ],
+            },
+        )
+        video_run = WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=video_node,
+            node_key='video_node',
+            node_type='video_generation',
+            status='pending',
+            input_payload={'prompt': '生成视频', 'model': 'video-model'},
+        )
+
+        payload = prepare_node_run_input_payload(video_run)
+
+        self.assertEqual(payload['image_url'], 'https://cdn.example.com/original.png')
+        self.assertEqual(payload['image_urls'], ['https://cdn.example.com/original.png'])
+
     def test_prepare_image_generation_payload_prefers_upstream_online_url(self):
         workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
         source_image_node = WorkflowNode.objects.create(

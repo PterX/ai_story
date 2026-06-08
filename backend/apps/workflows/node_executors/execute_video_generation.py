@@ -21,7 +21,7 @@ def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         image_inputs.insert(0, image_input)
     image_base64 = input_payload.get('image_base64')
     image_base64s = _ensure_list(input_payload.get('image_base64s'))
-    prepared_images = prepare_image_inputs_for_api(image_inputs)
+    prepared_images = prepare_image_inputs_for_api(image_inputs, prefer_online_url=True)
     api_image_inputs = prepared_images['api_image_inputs']
     for prepared_base64 in prepared_images['image_base64s']:
         if prepared_base64 not in image_base64s:

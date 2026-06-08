@@ -132,7 +132,7 @@ def _merge_upstream_image_inputs(node_run: WorkflowNodeRun, input_payload: Dict[
         return
 
     upstream_image_urls: List[str] = []
-    prefer_online_url = node_run.node_type == 'image_generation'
+    prefer_online_url = node_run.node_type in {'image_generation', 'video_generation'}
     for upstream_node in upstream_nodes:
         payload = _payload_from_upstream_run(
             node_run,

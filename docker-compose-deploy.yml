@@ -34,7 +34,7 @@ services:
     depends_on:
       - redis
 
-  # Vue前端
+  # 前端静态入口: linknow at /, ai_story admin at /admin
   frontend:
     image: xhongc/ai_story-frontend
     restart: unless-stopped

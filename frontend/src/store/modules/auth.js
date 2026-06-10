@@ -76,6 +76,7 @@ const getters = {
   refreshToken: state => state.refreshToken,
   user: state => state.user,
   isAuthenticated: state => state.isAuthenticated,
+  isSuperuser: state => state.user?.is_superuser === true,
   username: state => state.user?.username || '',
   userEmail: state => state.user?.email || '',
 }
@@ -127,6 +128,10 @@ const actions = {
 
       if (response.success) {
         const { user, tokens } = response.data
+        if (user?.is_superuser !== true) {
+          commit('CLEAR_AUTH')
+          throw new Error('没有 AI Story 后台访问权限')
+        }
 
         // 保存tokens和用户信息
         commit('SET_TOKENS', tokens)
@@ -151,6 +156,10 @@ const actions = {
 
       if (response.success) {
         const { user, tokens } = response.data
+        if (user?.is_superuser !== true) {
+          commit('CLEAR_AUTH')
+          throw new Error('没有 AI Story 后台访问权限')
+        }
 
         // 保存tokens和用户信息
         commit('SET_TOKENS', tokens)
@@ -223,6 +232,10 @@ const actions = {
       const response = await authAPI.getUserProfile()
 
       if (response.success) {
+        if (response.data?.is_superuser !== true) {
+          commit('CLEAR_AUTH')
+          throw new Error('没有 AI Story 后台访问权限')
+        }
         commit('SET_USER', response.data)
         return response.data
       } else {

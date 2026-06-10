@@ -261,6 +261,7 @@ router.beforeEach((to, from, next) => {
   }
 
   const isAuthenticated = store.getters['auth/isAuthenticated'];
+  const isSuperuser = store.getters['auth/isSuperuser'];
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
   const requiresGuest = to.matched.some(record => record.meta.requiresGuest);
 
@@ -269,8 +270,19 @@ router.beforeEach((to, from, next) => {
       path: '/login',
       query: { redirect: to.fullPath },
     });
+  } else if (requiresAuth && !isSuperuser) {
+    store.commit('auth/CLEAR_AUTH');
+    next({
+      path: '/login',
+      query: { denied: 'superuser' },
+    });
   } else if (requiresGuest && isAuthenticated) {
-    next('/series');
+    if (isSuperuser) {
+      next('/series');
+    } else {
+      store.commit('auth/CLEAR_AUTH');
+      next();
+    }
   } else {
     next();
   }

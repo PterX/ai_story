@@ -139,6 +139,11 @@ export default {
       loading: false
     }
   },
+  created() {
+    if (this.$route.query.denied === 'superuser') {
+      this.errorMessage = '只有超级管理员可以进入 AI Story 后台'
+    }
+  },
   methods: {
     ...mapActions('auth', ['login']),
 

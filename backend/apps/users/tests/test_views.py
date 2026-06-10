@@ -4,6 +4,34 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 
+class AdminAccessTests(APITestCase):
+    def test_staff_user_without_superuser_cannot_access_admin(self):
+        user = User.objects.create_user(
+            username='staff-user',
+            password='secret123',
+            is_staff=True,
+            is_superuser=False,
+        )
+        self.client.force_login(user)
+
+        response = self.client.get('/admin/')
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn('/admin/login/', response['Location'])
+
+    def test_superuser_can_access_admin(self):
+        user = User.objects.create_superuser(
+            username='root-user',
+            email='root@example.com',
+            password='secret123',
+        )
+        self.client.force_login(user)
+
+        response = self.client.get('/admin/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 class RegisterViewTests(APITestCase):
     def _payload(self, **overrides):
         payload = {

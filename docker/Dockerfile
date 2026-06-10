@@ -20,6 +20,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     pip install --no-cache-dir uv \
     && uv sync --frozen --no-dev --no-install-project
 
+COPY backend /app/backend
+COPY scripts /app/scripts
+
+RUN AI_STORY_COMPILE_CLOSED_SOURCE=1 /opt/venv/bin/python /app/backend/manage.py setup_in_docker \
+    && /app/scripts/check_closed_source_apps.sh
+
 FROM python:3.11-slim-bullseye AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -29,7 +35,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY backend /app/backend
+COPY --from=builder /app/backend /app/backend
 COPY docker/backend-entrypoint.sh /usr/local/bin/backend-entrypoint
 
 RUN sed -i 's/\r$//' /usr/local/bin/backend-entrypoint \

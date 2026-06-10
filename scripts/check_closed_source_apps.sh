@@ -4,14 +4,17 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 failed=0
 
-for app_name in agent mcp; do
+for app_name in agent mcp workflows; do
   app_dir="$repo_root/backend/apps/$app_name"
   [ -d "$app_dir" ] || continue
 
   leaked_files="$(find "$app_dir" \
     -type f \
     ! -name '*.so' \
+    ! -name '__init__.py' \
+    ! -name 'apps.py' \
     ! -name '.gitkeep' \
+    ! -path '*/migrations/*.py' \
     ! -path '*/__pycache__/*' \
     -print)"
 
@@ -23,7 +26,7 @@ for app_name in agent mcp; do
 done
 
 if [ "$failed" -ne 0 ]; then
-  echo "Only compiled .so files may remain in backend/apps/agent and backend/apps/mcp." >&2
+  echo "Only compiled .so files and Django package/migration files may remain in closed-source apps." >&2
   exit 1
 fi
 

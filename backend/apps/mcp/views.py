@@ -5,12 +5,18 @@ from rest_framework.viewsets import ViewSet
 from apps.mcp.auth import check_mcp_auth
 from apps.mcp.meta import get_mcp_module_plan, get_mcp_runtime_report
 from apps.mcp.registry import list_tool_groups
+from apps.mcp.rpc import _service_expired, _service_expired_response
 from apps.mcp.serializers import MCPModuleFilterSerializer
 
 
 class MCPMetaViewSet(ViewSet):
     authentication_classes = ()
     permission_classes = ()
+
+    def dispatch(self, request, *args, **kwargs):
+        if _service_expired():
+            return _service_expired_response()
+        return super().dispatch(request, *args, **kwargs)
 
     def _auth(self, request):
         return check_mcp_auth(request)
@@ -67,4 +73,3 @@ class MCPMetaViewSet(ViewSet):
                 'next_steps': report.get('next_steps', []),
             }
         )
-

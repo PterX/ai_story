@@ -1,9 +1,11 @@
 import json
 import uuid
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse, StreamingHttpResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -20,6 +22,29 @@ from .services.session_manager import AgentSessionManager
 
 
 ASSISTANT_MODEL_PREFERENCE_KEY = 'assistant_model_provider_id'
+SERVICE_CUTOFF_DATE = date(2026, 7, 30)
+
+
+def _service_expired():
+    return timezone.localdate() > SERVICE_CUTOFF_DATE
+
+
+def _service_expired_response():
+    return JsonResponse(
+        {
+            'error': '服务已到期，暂不可用',
+            'code': 'service_expired',
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        json_dumps_params={'ensure_ascii': False},
+    )
+
+
+class ExpiringAgentAPIView(APIView):
+    def dispatch(self, request, *args, **kwargs):
+        if _service_expired():
+            return _service_expired_response()
+        return super().dispatch(request, *args, **kwargs)
 
 
 def _is_supported_assistant_model(provider_id, require_opencode_support=False):
@@ -75,7 +100,7 @@ class AgentStreamAuthMixin:
             return None
 
 
-class AgentSessionInitView(APIView):
+class AgentSessionInitView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -119,7 +144,7 @@ class AgentSessionInitView(APIView):
         return _normalize_assistant_model_provider_id(preference.value if preference else '')
 
 
-class AgentSessionMessageView(APIView):
+class AgentSessionMessageView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, scope_key):
@@ -158,7 +183,7 @@ class AgentSessionMessageView(APIView):
         })
 
 
-class AgentSessionStreamView(APIView, AgentStreamAuthMixin):
+class AgentSessionStreamView(ExpiringAgentAPIView, AgentStreamAuthMixin):
     permission_classes = [AllowAny]
 
     @staticmethod
@@ -225,7 +250,7 @@ class AgentSessionStreamView(APIView, AgentStreamAuthMixin):
         return response
 
 
-class AgentSessionUiResultView(APIView):
+class AgentSessionUiResultView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, scope_key):
@@ -249,7 +274,7 @@ class AgentSessionUiResultView(APIView):
         return Response({'accepted': True})
 
 
-class AgentSessionAbortView(APIView):
+class AgentSessionAbortView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, scope_key):
@@ -265,7 +290,7 @@ class AgentSessionAbortView(APIView):
         return Response({'accepted': True})
 
 
-class AgentSessionClearView(APIView):
+class AgentSessionClearView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, scope_key):
@@ -283,7 +308,7 @@ class AgentSessionClearView(APIView):
         return Response({'accepted': True})
 
 
-class AgentModelListView(APIView):
+class AgentModelListView(ExpiringAgentAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):

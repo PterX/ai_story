@@ -2,10 +2,11 @@
 
 import json
 import time
+from datetime import date
 
 from celery.result import AsyncResult
 from django.db.models import Q
-from django.http import StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import exceptions, renderers, status, viewsets
@@ -50,6 +51,31 @@ from .serializers import (
 )
 from .services import apply_workflow_node_result, enqueue_node_run
 from .tasks import execute_workflow_node_task
+
+
+SERVICE_CUTOFF_DATE = date(2026, 7, 30)
+
+
+def _service_expired():
+    return timezone.localdate() > SERVICE_CUTOFF_DATE
+
+
+def _service_expired_response():
+    return JsonResponse(
+        {
+            'error': '服务已到期，暂不可用',
+            'code': 'service_expired',
+        },
+        status=503,
+        json_dumps_params={'ensure_ascii': False},
+    )
+
+
+class ExpiringWorkflowMixin:
+    def dispatch(self, request, *args, **kwargs):
+        if _service_expired():
+            return _service_expired_response()
+        return super().dispatch(request, *args, **kwargs)
 
 
 class ServerSentEventRenderer(renderers.BaseRenderer):
@@ -104,7 +130,7 @@ def iter_workflow_event_stream(queryset, *, connected_payload, terminal_checker)
     yield f"data: {json.dumps({**connected_payload, 'type': 'stream_end'}, ensure_ascii=False)}\n\n"
 
 
-class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
+class WorkflowDefinitionViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowDefinitionSerializer
     queryset = WorkflowDefinition.objects.all().select_related('created_by')
@@ -118,7 +144,7 @@ class WorkflowDefinitionViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class WorkflowNodeSchemaViewSet(viewsets.ModelViewSet):
+class WorkflowNodeSchemaViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowNodeSchemaSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -140,7 +166,7 @@ class WorkflowNodeSchemaViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
 
-class WorkflowCanvasViewSet(viewsets.ModelViewSet):
+class WorkflowCanvasViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'project', 'series', 'definition']
@@ -234,7 +260,7 @@ class WorkflowCanvasViewSet(viewsets.ModelViewSet):
         ))
 
 
-class WorkflowNodeViewSet(viewsets.ModelViewSet):
+class WorkflowNodeViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowNodeSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -269,7 +295,7 @@ class WorkflowNodeViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 
-class WorkflowEdgeViewSet(viewsets.ModelViewSet):
+class WorkflowEdgeViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowEdgeSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -285,7 +311,7 @@ class WorkflowEdgeViewSet(viewsets.ModelViewSet):
         )
 
 
-class WorkflowRunViewSet(viewsets.ModelViewSet):
+class WorkflowRunViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'trigger_mode', 'project', 'series', 'definition']
@@ -370,7 +396,7 @@ class WorkflowRunViewSet(viewsets.ModelViewSet):
         ))
 
 
-class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
+class WorkflowNodeRunViewSet(ExpiringWorkflowMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['workflow_run', 'node_key', 'node_type', 'status']
@@ -485,7 +511,7 @@ class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
         return response
 
 
-class WorkflowBindingViewSet(viewsets.ReadOnlyModelViewSet):
+class WorkflowBindingViewSet(ExpiringWorkflowMixin, viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowBindingSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -505,7 +531,7 @@ class WorkflowBindingViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class WorkflowNodeRunEventViewSet(viewsets.ReadOnlyModelViewSet):
+class WorkflowNodeRunEventViewSet(ExpiringWorkflowMixin, viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowNodeRunEventSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]
@@ -525,7 +551,7 @@ class WorkflowNodeRunEventViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class WorkflowCallbackEventViewSet(viewsets.GenericViewSet):
+class WorkflowCallbackEventViewSet(ExpiringWorkflowMixin, viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = WorkflowCallbackEventSerializer
     filter_backends = [DjangoFilterBackend, OrderingFilter]

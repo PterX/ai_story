@@ -2,8 +2,10 @@ import json
 import queue
 import time
 import uuid
+from datetime import date
 
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
+from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -17,6 +19,22 @@ from apps.mcp.utils.presenters import tool_text_payload
 _SSE_SESSIONS = {}
 _SSE_SESSION_TIMEOUT_SECONDS = 30 * 60
 _SSE_HEARTBEAT_SECONDS = 15
+_SERVICE_CUTOFF_DATE = date(2026, 7, 30)
+
+
+def _service_expired():
+    return timezone.localdate() > _SERVICE_CUTOFF_DATE
+
+
+def _service_expired_response():
+    return JsonResponse(
+        {
+            'error': '服务已到期，暂不可用',
+            'code': 'service_expired',
+        },
+        status=503,
+        json_dumps_params={'ensure_ascii': False},
+    )
 
 
 def _format_sse(event=None, data=None):
@@ -43,6 +61,11 @@ class MCPServerView(View):
     protocol_version = supported_protocol_versions[0]
     server_name = 'ai-story-native-mcp'
     server_version = '0.1.0'
+
+    def dispatch(self, request, *args, **kwargs):
+        if _service_expired():
+            return _service_expired_response()
+        return super().dispatch(request, *args, **kwargs)
 
     def _jsonrpc_result(self, request_id, result):
         return {'jsonrpc': '2.0', 'id': request_id, 'result': result}

@@ -1,5 +1,6 @@
 """用户认证序列化器"""
 from rest_framework import serializers
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 
@@ -39,18 +40,34 @@ class RegisterSerializer(serializers.ModelSerializer):
     """注册序列化器"""
     password = serializers.CharField(write_only=True, required=True, min_length=6)
     password_confirm = serializers.CharField(write_only=True, required=True)
+    invite_code = serializers.CharField(write_only=True, required=True, trim_whitespace=True)
 
     class Meta:
         model = User
-        fields = ('username', 'email', 'password', 'password_confirm', 'first_name', 'last_name')
+        fields = (
+            'username',
+            'email',
+            'password',
+            'password_confirm',
+            'invite_code',
+            'first_name',
+            'last_name',
+        )
 
     def validate(self, attrs):
         if attrs['password'] != attrs['password_confirm']:
             raise serializers.ValidationError({'password_confirm': '两次密码输入不一致'})
+
+        expected_invite_code = getattr(settings, 'LINKNOW_REGISTRATION_INVITE_CODE', '').strip()
+        if not expected_invite_code:
+            raise serializers.ValidationError({'invite_code': '注册邀请码未配置'})
+        if attrs.get('invite_code') != expected_invite_code:
+            raise serializers.ValidationError({'invite_code': '邀请码错误'})
         return attrs
 
     def create(self, validated_data):
         validated_data.pop('password_confirm')
+        validated_data.pop('invite_code')
         user = User.objects.create_user(**validated_data)
         return user
 

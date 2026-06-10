@@ -40,6 +40,97 @@ def initialize_project(project):
     ContentRewrite.objects.create(project=project, original_text=project.original_topic)
 
 
+class WorkflowCanvasPermissionAPITestCase(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='canvas-owner', password='secret123')
+        self.other_user = User.objects.create_user(username='canvas-other', password='secret123')
+        self.client.force_authenticate(self.user)
+        self.series = Series.objects.create(name='本人作品', description='desc', user=self.user)
+        self.project = Project.objects.create(
+            user=self.user,
+            series=self.series,
+            episode_number=1,
+            sort_order=1,
+            episode_title='第1集',
+            name='第1集',
+            original_topic='本人文案',
+        )
+        self.other_series = Series.objects.create(name='其他作品', description='desc', user=self.other_user)
+        self.other_project = Project.objects.create(
+            user=self.other_user,
+            series=self.other_series,
+            episode_number=1,
+            sort_order=1,
+            episode_title='第1集',
+            name='第1集',
+            original_topic='其他文案',
+        )
+        self.canvas = WorkflowCanvas.objects.create(
+            name='本人画板',
+            project=self.project,
+            series=self.series,
+            created_by=self.user,
+            status='active',
+        )
+        self.other_canvas = WorkflowCanvas.objects.create(
+            name='其他用户画板',
+            project=self.other_project,
+            series=self.other_series,
+            created_by=self.other_user,
+            status='active',
+        )
+        self.cross_project_canvas = WorkflowCanvas.objects.create(
+            name='跨项目历史脏数据',
+            project=self.other_project,
+            series=self.other_series,
+            created_by=self.user,
+            status='active',
+        )
+        self.missing_creator_canvas = WorkflowCanvas.objects.create(
+            name='缺少创建人的历史数据',
+            project=self.project,
+            series=self.series,
+            created_by=None,
+            status='active',
+        )
+
+    def test_canvas_list_only_returns_current_user_items(self):
+        response = self.client.get(reverse('workflow-canvas-list'))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        items = response.data.get('results', response.data)
+        canvas_ids = {str(item['id']) for item in items}
+        self.assertIn(str(self.canvas.id), canvas_ids)
+        self.assertNotIn(str(self.other_canvas.id), canvas_ids)
+        self.assertNotIn(str(self.cross_project_canvas.id), canvas_ids)
+        self.assertNotIn(str(self.missing_creator_canvas.id), canvas_ids)
+
+    def test_canvas_detail_rejects_other_user_item(self):
+        response = self.client.get(reverse('workflow-canvas-detail', args=[self.other_canvas.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_canvas_detail_rejects_cross_project_item(self):
+        response = self.client.get(reverse('workflow-canvas-detail', args=[self.cross_project_canvas.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_canvas_create_rejects_other_user_project(self):
+        response = self.client.post(
+            reverse('workflow-canvas-list'),
+            {
+                'name': '跨用户画板',
+                'project': str(self.other_project.id),
+                'series': str(self.other_series.id),
+                'status': 'draft',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(WorkflowCanvas.objects.filter(name='跨用户画板').count(), 0)
+
+
 class WorkflowCallbackAPITestCase(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='workflow-user', password='secret123')

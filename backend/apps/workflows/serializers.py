@@ -217,6 +217,18 @@ class WorkflowCanvasCreateSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        request = self.context.get('request')
+        user = request.user if request and request.user and request.user.is_authenticated else None
+        project = attrs.get('project')
+        series = attrs.get('series')
+        if user:
+            if project and project.user_id != user.id:
+                raise serializers.ValidationError({'project': '不能使用其他用户的项目创建工作流'})
+            if series and series.user_id != user.id:
+                raise serializers.ValidationError({'series': '不能使用其他用户的作品创建工作流'})
+            if project and series and project.series_id and project.series_id != series.id:
+                raise serializers.ValidationError({'series': '作品与项目不匹配'})
+
         definition = attrs.get('definition')
         definition_key = (attrs.pop('definition_key', '') or '').strip()
         if not definition and definition_key:

@@ -151,6 +151,7 @@ class WorkflowCanvasViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             WorkflowCanvas.objects
+            .filter(project__user=self.request.user)
             .filter(created_by=self.request.user)
             .select_related('definition', 'project', 'series', 'created_by')
             .prefetch_related('nodes', 'edges')
@@ -243,7 +244,11 @@ class WorkflowNodeViewSet(viewsets.ModelViewSet):
     ordering = ['created_at']
 
     def get_queryset(self):
-        return WorkflowNode.objects.filter(canvas__created_by=self.request.user).select_related('canvas')
+        return (
+            WorkflowNode.objects
+            .filter(canvas__project__user=self.request.user, canvas__created_by=self.request.user)
+            .select_related('canvas')
+        )
 
     @action(detail=True, methods=['post'])
     def execute(self, request, pk=None):
@@ -273,7 +278,11 @@ class WorkflowEdgeViewSet(viewsets.ModelViewSet):
     ordering = ['created_at']
 
     def get_queryset(self):
-        return WorkflowEdge.objects.filter(canvas__created_by=self.request.user).select_related('canvas', 'source_node', 'target_node')
+        return (
+            WorkflowEdge.objects
+            .filter(canvas__project__user=self.request.user, canvas__created_by=self.request.user)
+            .select_related('canvas', 'source_node', 'target_node')
+        )
 
 
 class WorkflowRunViewSet(viewsets.ModelViewSet):
@@ -287,7 +296,7 @@ class WorkflowRunViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             WorkflowRun.objects
-            .filter(created_by=self.request.user)
+            .filter(project__user=self.request.user, created_by=self.request.user)
             .select_related('definition', 'project', 'series', 'created_by')
             .prefetch_related('node_runs__bindings', 'bindings')
         )
@@ -382,7 +391,10 @@ class WorkflowNodeRunViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             WorkflowNodeRun.objects
-            .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
+            .filter(
+                Q(canvas__project__user=self.request.user, canvas__created_by=self.request.user) |
+                Q(workflow_run__project__user=self.request.user, workflow_run__created_by=self.request.user)
+            )
             .select_related('workflow_run', 'canvas', 'node')
             .prefetch_related('bindings')
             .distinct()
@@ -484,7 +496,10 @@ class WorkflowBindingViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return (
             WorkflowBinding.objects
-            .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
+            .filter(
+                Q(canvas__project__user=self.request.user, canvas__created_by=self.request.user) |
+                Q(workflow_run__project__user=self.request.user, workflow_run__created_by=self.request.user)
+            )
             .select_related('workflow_run', 'canvas', 'node', 'node_run')
             .distinct()
         )
@@ -501,7 +516,10 @@ class WorkflowNodeRunEventViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         return (
             WorkflowNodeRunEvent.objects
-            .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
+            .filter(
+                Q(canvas__project__user=self.request.user, canvas__created_by=self.request.user) |
+                Q(workflow_run__project__user=self.request.user, workflow_run__created_by=self.request.user)
+            )
             .select_related('workflow_run', 'canvas', 'node', 'node_run')
             .distinct()
         )
@@ -518,7 +536,10 @@ class WorkflowCallbackEventViewSet(viewsets.GenericViewSet):
     def get_queryset(self):
         return (
             WorkflowCallbackEvent.objects
-            .filter(Q(canvas__created_by=self.request.user) | Q(workflow_run__created_by=self.request.user))
+            .filter(
+                Q(canvas__project__user=self.request.user, canvas__created_by=self.request.user) |
+                Q(workflow_run__project__user=self.request.user, workflow_run__created_by=self.request.user)
+            )
             .select_related('workflow_run', 'canvas', 'node_run')
             .distinct()
         )

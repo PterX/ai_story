@@ -24,3 +24,5 @@ storage/
 media/
 staticfiles/
 *.md
+db.sqlite3
+ai_story.db

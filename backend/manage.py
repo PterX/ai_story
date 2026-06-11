@@ -1,11 +1,9 @@
 #!/usr/bin/env python
-"""Django项目管理脚本"""
 import os
 import sys
 
 
 def main():
-    """运行管理任务"""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
     try:
         from django.core.management import execute_from_command_line

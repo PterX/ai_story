@@ -423,7 +423,6 @@ class Image2VideoStageProcessor(StageProcessor):
                 return
 
             model_name = provider.model_name
-            api_key = provider.api_key
             api_url = provider.api_url
             image_url = image_urls[0].get("url", "") if image_urls else ""
             image_base64 = storyboard.get("url", "")
@@ -442,7 +441,6 @@ class Image2VideoStageProcessor(StageProcessor):
             client = create_ai_client_for_user(provider, user=project.user)
             generate_kwargs = {
                 'api_url': api_url,
-                'session_id': api_key,
                 'model': model_name,
                 'prompt': prompt,
                 'camera_movement_description': camera_movement_description,

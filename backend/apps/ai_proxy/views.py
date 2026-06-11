@@ -188,6 +188,8 @@ class ChatCompletionsProxyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from apps.models.token_utils import get_user_api_key
+
         provider = _pick_provider('llm', model)
         if not provider:
             return Response(
@@ -195,8 +197,9 @@ class ChatCompletionsProxyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
+        effective_api_key = get_user_api_key(request.user) or provider.api_key
         headers = {
-            'Authorization': f'Bearer {provider.api_key}',
+            'Authorization': f'Bearer {effective_api_key}',
             'Content-Type': 'application/json',
         }
         payload = {

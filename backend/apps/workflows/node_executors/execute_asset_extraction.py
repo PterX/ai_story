@@ -158,7 +158,7 @@ def execute_asset_extraction(node_run: WorkflowNodeRun, input_payload: Dict[str,
             'stream': False,
         }
         headers = {
-            'Authorization': f'Bearer {provider.api_key}',
+            'Authorization': f'Bearer {client.api_key}',
             'Content-Type': 'application/json',
         }
 

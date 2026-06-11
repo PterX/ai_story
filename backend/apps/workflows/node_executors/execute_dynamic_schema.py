@@ -115,7 +115,7 @@ def execute_dynamic_schema(node_run: WorkflowNodeRun, input_payload: Dict[str, A
             'stream': False,
         }
         headers = {
-            'Authorization': f'Bearer {provider.api_key}',
+            'Authorization': f'Bearer {client.api_key}',
             'Content-Type': 'application/json',
         }
         start_time = time.time()

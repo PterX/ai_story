@@ -104,7 +104,7 @@ def execute_storyboard(node_run: WorkflowNodeRun, input_payload: Dict[str, Any])
             'stream': False,
         }
         headers = {
-            'Authorization': f'Bearer {provider.api_key}',
+            'Authorization': f'Bearer {client.api_key}',
             'Content-Type': 'application/json',
         }
 

@@ -1368,7 +1368,6 @@ class ProjectViewSet(viewsets.ModelViewSet):
 
         response = client.generate(
             api_url=provider.api_url,
-            session_id=provider.api_key,
             model=provider.model_name,
             prompt=prompt,
             ratio='1:1',

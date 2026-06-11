@@ -78,13 +78,36 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# 数据库配置
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.getenv('SQLITE_DB_PATH', str(BASE_DIR / 'data' / 'ai_story.db')),
+def build_database_config():
+    if (
+        os.getenv('MYSQL_DB_NAME')
+        and os.getenv('MYSQL_PASSWORD')
+        and os.getenv('MYSQL_HOST')
+    ):
+        print('程序启动数据库：MySQL')
+        return {
+            'default': {
+                'ENGINE': 'django.db.backends.mysql',
+                'NAME': os.getenv('MYSQL_DB_NAME'),
+                'USER': os.getenv('MYSQL_USER', 'root'),
+                'PASSWORD': os.getenv('MYSQL_PASSWORD', ''),
+                'HOST': os.getenv('MYSQL_HOST'),
+                'PORT': int(os.getenv('MYSQL_PORT', '3306')),
+                'OPTIONS': {
+                    'charset': 'utf8mb4',
+                },
+            }
+        }
+
+    return {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.getenv('SQLITE_DB_PATH', str(BASE_DIR / 'data' / 'ai_story.db')),
+        }
     }
-}
+
+# 数据库配置
+DATABASES = build_database_config()
 
 # 密码验证
 AUTH_PASSWORD_VALIDATORS = [

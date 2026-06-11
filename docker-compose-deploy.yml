@@ -1,14 +1,25 @@
 services:
 
+  # MySQL数据库
+  mysql:
+    image: mysql:8.2
+    restart: unless-stopped
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_PASSWORD:-aistory_4087}
+      - MYSQL_DATABASE=${MYSQL_DB_NAME:-ai_story}
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
   # Redis缓存和消息队列
   redis:
-    image: redis:7-alpine
+    image: redis:latest
     restart: unless-stopped
 
 
   # Django后端
   backend:
-    image: xhongc/ai_story-backend
+    image: ai_story-v2:latest
     restart: unless-stopped
     volumes:
       - ./data/backend:/app/backend/data
@@ -16,12 +27,18 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.production
       - REDIS_HOST=redis
+      - MYSQL_DB_NAME=${MYSQL_DB_NAME:-ai_story}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-aistory_4087}
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
     depends_on:
       - redis
+      - mysql
 
   # Celery Worker
   celery:
-    image: xhongc/ai_story-backend
+    image: ai_story-v2:latest
     working_dir: /app/backend
     command: celery -A config worker -l info -P gevent
     restart: unless-stopped
@@ -31,14 +48,20 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.production
       - REDIS_HOST=redis
+      - MYSQL_DB_NAME=${MYSQL_DB_NAME:-}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-}
+      - MYSQL_HOST=${MYSQL_HOST:-mysql}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
     depends_on:
       - redis
+      - mysql
 
   # 前端静态入口: linknow at /, ai_story admin at /admin
   frontend:
-    image: xhongc/ai_story-frontend
+    image: ai_story_frontend-v2:latest
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3003:3000"
     depends_on:
       - backend

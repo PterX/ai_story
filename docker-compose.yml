@@ -13,6 +13,11 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.production
       - REDIS_HOST=redis
+      - MYSQL_DB_NAME=${MYSQL_DB_NAME:-}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-}
+      - MYSQL_HOST=${MYSQL_HOST:-}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
     depends_on:
       - redis
 
@@ -28,6 +33,11 @@ services:
     environment:
       - DJANGO_SETTINGS_MODULE=config.settings.production
       - REDIS_HOST=redis
+      - MYSQL_DB_NAME=${MYSQL_DB_NAME:-}
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-}
+      - MYSQL_HOST=${MYSQL_HOST:-}
+      - MYSQL_PORT=${MYSQL_PORT:-3306}
     depends_on:
       - redis
 

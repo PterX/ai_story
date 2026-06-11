@@ -10,13 +10,8 @@ ALLOWED_HOSTS = ['*']
 # CORS配置 - 按需放开来源
 CORS_ALLOW_ALL_ORIGINS = True
 
-# 数据库 - 生产环境默认使用SQLite，可通过环境变量覆盖路径
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.getenv('SQLITE_DB_PATH', str(BASE_DIR / 'data' / 'ai_story.db')),
-    }
-}
+# 数据库 - 默认使用SQLite，提供 MySQL 环境变量时自动切换
+DATABASES = build_database_config()
 
 # 日志配置
 LOGGING = {

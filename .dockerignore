@@ -32,6 +32,8 @@ django.log
 .venv/
 /storage/
 /backend/storage/image/
+/backend/data/
+/backend/media/
 .env
 frontend/node_modules/
 frontend/dist/

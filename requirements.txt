@@ -128,6 +128,8 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+mysqlclient==2.2.8
+    # via ai-story (pyproject.toml)
 numpy==2.4.3
     # via imageio
 packaging==25.0

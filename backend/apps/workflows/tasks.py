@@ -26,16 +26,18 @@ logger = logging.getLogger(__name__)
 def _dispatch_node_execution(node_run: WorkflowNodeRun) -> Dict[str, Any]:
     """根据节点类型分发到对应的执行函数。"""
     input_payload = prepare_node_run_input_payload(node_run)
+    project = getattr(getattr(node_run, 'canvas', None), 'project', None)
+    user_id = getattr(project, 'user_id', None)
     if node_run.node_type == 'rewrite':
-        return execute_rewrite(input_payload)
+        return execute_rewrite(input_payload, user_id=user_id)
     if node_run.node_type == 'asset_extraction':
         return execute_asset_extraction(node_run, input_payload)
     if node_run.node_type == 'storyboard':
         return execute_storyboard(node_run, input_payload)
     if node_run.node_type == 'image_generation':
-        return execute_image_generation(input_payload)
+        return execute_image_generation(input_payload, user_id=user_id)
     if node_run.node_type == 'video_generation':
-        return execute_video_generation(input_payload)
+        return execute_video_generation(input_payload, user_id=user_id)
     if node_run.node_type == 'audio':
         return execute_audio(input_payload)
     if node_run.node_type == 'dynamic_schema':

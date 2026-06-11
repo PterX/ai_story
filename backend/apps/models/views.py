@@ -13,7 +13,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.shortcuts import get_object_or_404
 from asgiref.sync import async_to_sync
 
-from .models import ModelProvider, ModelUsageLog
+from .models import ModelProvider, ModelUsageLog, UserApiToken
 from .serializers import (
     ModelProviderListSerializer,
     ModelProviderDetailSerializer,
@@ -26,6 +26,8 @@ from .serializers import (
     VendorModelBatchCreateSerializer,
     VendorConnectionConfigSerializer,
     VendorConnectionConfigQuerySerializer,
+    UserApiTokenSerializer,
+    UserApiTokenResponseSerializer,
 )
 from .services import ModelProviderService, ModelUsageLogService
 
@@ -440,6 +442,34 @@ class ModelProviderViewSet(viewsets.ModelViewSet):
             'created': ModelProviderDetailSerializer(result['created'], many=True).data,
             'skipped': result['skipped'],
         }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get', 'put', 'delete'], url_path='my-token')
+    def my_token(self, request):
+        """
+        当前用户的 API Token 管理
+        GET    /api/v1/models/providers/my-token/  — 获取（脱敏）
+        PUT    /api/v1/models/providers/my-token/  — 创建/更新
+        DELETE /api/v1/models/providers/my-token/  — 删除
+        """
+        if request.method == 'GET':
+            try:
+                token_obj = request.user.api_token
+            except UserApiToken.DoesNotExist:
+                return Response({'api_token': '', 'created_at': None, 'updated_at': None})
+            return Response(UserApiTokenResponseSerializer(token_obj).data)
+
+        elif request.method == 'PUT':
+            serializer = UserApiTokenSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            token_obj, _ = UserApiToken.objects.update_or_create(
+                user=request.user,
+                defaults={'api_token': serializer.validated_data['api_token']},
+            )
+            return Response(UserApiTokenResponseSerializer(token_obj).data)
+
+        elif request.method == 'DELETE':
+            UserApiToken.objects.filter(user=request.user).delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ModelUsageLogViewSet(viewsets.ReadOnlyModelViewSet):

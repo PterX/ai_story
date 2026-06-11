@@ -441,8 +441,8 @@ class LLMStageProcessor(StageProcessor):
             raise ValueError(f"提示词模板渲染失败: {str(e)}")
 
     def _get_ai_client(self, project: Project):
-        """获取AI客户端（使用动态执行器）"""
-        from core.ai_client.factory import create_ai_client
+        """获取AI客户端（使用动态执行器，支持用户 Token 覆盖）"""
+        from apps.models.token_utils import create_ai_client_for_user
 
         # 获取项目模型配置
         config = getattr(project, 'model_config', None)
@@ -478,8 +478,8 @@ class LLMStageProcessor(StageProcessor):
         if not provider:
             provider = self._get_default_provider()
 
-        # 使用工厂函数动态创建客户端
-        return create_ai_client(provider)
+        # 使用工厂函数动态创建客户端（支持用户 Token 覆盖）
+        return create_ai_client_for_user(provider, user=project.user)
 
     def _get_default_provider(self) -> ModelProvider:
         """获取默认的LLM提供商"""

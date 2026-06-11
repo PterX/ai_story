@@ -78,7 +78,7 @@ class Text2ImageAssetPromptTestCase(APITestCase):
         ProjectAssetBinding.objects.create(project=self.project, asset=self.hero_asset)
         ProjectAssetBinding.objects.create(project=self.project, asset=self.cow_asset)
 
-    @patch('apps.content.processors.text2image_stage.create_ai_client')
+    @patch('apps.content.processors.text2image_stage.create_ai_client_for_user')
     def test_generate_single_image_replaces_image_assets_with_labels_and_base64(self, mock_create_ai_client):
         client = mock_create_ai_client.return_value
         client.generate.return_value = SimpleNamespace(

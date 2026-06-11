@@ -62,7 +62,7 @@ class PromptDebugServiceText2ImageTestCase(TestCase):
             image_file=SimpleUploadedFile('cow.png', TINY_PNG_BYTES, content_type='image/png'),
         )
 
-    @patch('apps.prompts.debug_services.create_ai_client')
+    @patch('apps.prompts.debug_services.create_ai_client_for_user')
     def test_run_session_passes_labeled_prompt_and_base64_images(self, mock_create_ai_client):
         client = mock_create_ai_client.return_value
         client.generate.return_value = type('Response', (), {

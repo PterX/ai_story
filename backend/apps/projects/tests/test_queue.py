@@ -505,7 +505,7 @@ class ImageEditStageExecutionTestCase(APITestCase):
             height=2048,
         )
 
-    @patch('apps.content.processors.image_edit_stage.create_ai_client')
+    @patch('apps.content.processors.image_edit_stage.create_ai_client_for_user')
     def test_image_edit_processor_creates_edited_images_from_tiles(self, mock_create_ai_client):
         from core.ai_client.base import AIResponse
         from apps.models.models import ModelProvider

@@ -47,7 +47,7 @@ class AIProxyViewTests(APITestCase):
         self.assertEqual(len(response.data['video']), 1)
         self.assertEqual(response.data['chat'][0]['model_name'], 'gpt-test')
 
-    @patch('apps.ai_proxy.views.create_ai_client')
+    @patch('apps.ai_proxy.views.create_ai_client_for_user')
     def test_images_generations_uses_text2image_provider(self, mock_create_client):
         provider = ModelProvider.objects.create(
             name='Image Provider',
@@ -83,7 +83,7 @@ class AIProxyViewTests(APITestCase):
         self.assertEqual(response.data['data'][0]['url'], '/api/v1/content/storage/image/a.png')
         mock_generate.assert_called_once()
 
-    @patch('apps.ai_proxy.views.create_ai_client')
+    @patch('apps.ai_proxy.views.create_ai_client_for_user')
     def test_images_generations_uses_image_edit_provider_when_mode_is_inpaint(self, mock_create_client):
         provider = ModelProvider.objects.create(
             name='Edit Provider',
@@ -121,7 +121,7 @@ class AIProxyViewTests(APITestCase):
         self.assertEqual(response.data['data'][0]['url'], '/api/v1/content/storage/image/edited.png')
         mock_edit.assert_called_once()
 
-    @patch('apps.ai_proxy.views.create_ai_client')
+    @patch('apps.ai_proxy.views.create_ai_client_for_user')
     def test_videos_generations_uses_image2video_provider(self, mock_create_client):
         provider = ModelProvider.objects.create(
             name='Video Provider',

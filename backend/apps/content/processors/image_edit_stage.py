@@ -13,7 +13,7 @@ from jinja2 import Template, TemplateError
 from apps.content.models import EditedImage, MultiGridTile, Storyboard
 from apps.projects.models import Project, ProjectStage
 from apps.prompts.client_param_resolver import resolve_stage_client_params
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import ImageEditRequest
 
@@ -166,7 +166,7 @@ class ImageEditStageProcessor(Text2ImageStageProcessor):
                 yield {'type': 'error', 'error': '未配置可用的图片编辑模型'}
                 return
 
-            client = create_ai_client(provider)
+            client = create_ai_client_for_user(provider, user=project.user)
             success_count = 0
             failed_count = 0
 

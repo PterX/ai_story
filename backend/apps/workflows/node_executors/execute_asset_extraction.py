@@ -10,7 +10,7 @@ from django.db.models import Q
 from apps.ai_proxy.views import _build_provider_payload, _parse_float, _parse_int, _pick_provider
 from apps.projects.utils import parse_json
 from apps.prompts.models import GlobalVariable
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 
 from ..models import WorkflowNodeRun
 from .llm_helpers import collect_llm_stream_text
@@ -125,7 +125,7 @@ def execute_asset_extraction(node_run: WorkflowNodeRun, input_payload: Dict[str,
     temperature = input_payload.get('temperature', 0.3)
     top_p = input_payload.get('top_p', 1.0)
 
-    client = create_ai_client(provider)
+    client = create_ai_client_for_user(provider, user=getattr(getattr(node_run.canvas, 'project', None), 'user', None))
     client.config['timeout'] = max(int(client.config.get('timeout') or 0), int(provider.timeout or 0), 180)
 
     result = {

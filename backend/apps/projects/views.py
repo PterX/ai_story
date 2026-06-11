@@ -32,7 +32,7 @@ from apps.models.models import ModelProvider
 from apps.prompts.models import PromptTemplate, PromptTemplateSet
 from apps.prompts.models import GlobalVariable
 from apps.prompts.serializers import GlobalVariableListSerializer
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.utils.file_storage import image_storage
 from .models import Project, ProjectAssetBinding, ProjectModelConfig, ProjectStage, Series
 from .queue_service import cancel_running_queue_task, enqueue_episode_task, force_release_queue_task
@@ -534,7 +534,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
                 messages = stream_payload.get('messages') or []
                 _, node_payload = self._resolve_node_chat_target(project, node_type, node_id)
                 provider = self._get_node_chat_provider(project, node_type)
-                ai_client = create_ai_client(provider)
+                ai_client = create_ai_client_for_user(provider, user=request.user)
                 system_prompt = self._render_node_chat_system_prompt(project, node_type, node_payload)
                 prompt = self._build_node_chat_user_prompt(node_type, node_payload, messages, user_message)
                 max_tokens = getattr(provider, 'max_tokens', None) or ai_client.config.get('max_tokens', 2000)
@@ -1362,7 +1362,7 @@ class ProjectViewSet(viewsets.ModelViewSet):
         if not provider:
             return Response({'error': '未配置可用的文生图模型'}, status=status.HTTP_400_BAD_REQUEST)
 
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=request.user)
         width = int(provider.extra_config.get('width', 1024)) if provider.extra_config else 1024
         height = int(provider.extra_config.get('height', 1024)) if provider.extra_config else 1024
 

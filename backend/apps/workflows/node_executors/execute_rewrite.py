@@ -62,12 +62,17 @@ def _read_image_url_as_data_uri(image_url: str, timeout: int) -> str:
     return f'data:{mime_type};base64,{encoded}'
 
 
-def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+def execute_rewrite(input_payload: Dict[str, Any], user_id=None) -> Dict[str, Any]:
     """执行改写节点，调用 LLM 生成改写结果。"""
+    from apps.models.token_utils import get_user_api_key_by_id
+
     model = input_payload.get('model', '')
     provider = _pick_provider('llm', model)
     if not provider:
         raise RuntimeError('没有可用的 LLM 模型提供商，请在 ai_story 后台配置 ModelProvider')
+
+    # 优先使用用户自定义 API Token
+    effective_api_key = get_user_api_key_by_id(user_id) or provider.api_key
 
     original_text = (input_payload.get('original_text') or '').strip()
     upstream_text = (input_payload.get('upstream_text') or '').strip()
@@ -135,7 +140,7 @@ def execute_rewrite(input_payload: Dict[str, Any]) -> Dict[str, Any]:
         'stream': True,
     }
     headers = {
-        'Authorization': f'Bearer {provider.api_key}',
+        'Authorization': f'Bearer {effective_api_key}',
         'Content-Type': 'application/json',
     }
     start_time = time.time()

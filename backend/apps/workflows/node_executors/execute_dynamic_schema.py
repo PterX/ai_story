@@ -8,7 +8,7 @@ import requests
 
 from apps.ai_proxy.views import _build_provider_payload, _parse_int, _pick_provider
 from apps.projects.utils import parse_json
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 
 from ..models import WorkflowNodeRun
 from ..node_schema_runtime import render_schema_system_prompt, resolve_node_schema
@@ -83,7 +83,7 @@ def execute_dynamic_schema(node_run: WorkflowNodeRun, input_payload: Dict[str, A
         f'## 用户输入\n{raw_text}',
     ]).strip()
 
-    client = create_ai_client(provider)
+    client = create_ai_client_for_user(provider, user=getattr(getattr(node_run.canvas, 'project', None), 'user', None))
     client.config['timeout'] = max(int(client.config.get('timeout') or 0), int(provider.timeout or 0), 180)
 
     result = {

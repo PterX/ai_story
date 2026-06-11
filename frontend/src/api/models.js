@@ -174,6 +174,31 @@ export const modelProviderApi = {
 
   batchCreateVendorModels(data) {
     return apiClient.post('/models/providers/batch_create_vendor_models/', data)
+  },
+
+  /**
+   * 获取当前用户的 API Token（脱敏）
+   * @returns {Promise}
+   */
+  getMyToken() {
+    return apiClient.get('/models/providers/my-token/')
+  },
+
+  /**
+   * 保存当前用户的 API Token
+   * @param {string} token - API Token
+   * @returns {Promise}
+   */
+  saveMyToken(token) {
+    return apiClient.put('/models/providers/my-token/', { api_token: token })
+  },
+
+  /**
+   * 删除当前用户的 API Token
+   * @returns {Promise}
+   */
+  deleteMyToken() {
+    return apiClient.delete('/models/providers/my-token/')
   }
 }
 

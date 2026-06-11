@@ -5,13 +5,13 @@ import uuid
 from typing import Any, Dict
 
 from apps.ai_proxy.views import _build_provider_payload, _ensure_list, _parse_int, _pick_provider
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 
 from .image_input_helpers import prepare_image_inputs_for_api
 from .response_helpers import extract_video_url, normalize_video_result
 
 
-def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+def execute_video_generation(input_payload: Dict[str, Any], user_id=None) -> Dict[str, Any]:
     """执行视频生成节点，调用视频模型从图片生成视频。"""
     prompt = input_payload.get('prompt', '')
     model = input_payload.get('model', '')
@@ -36,7 +36,7 @@ def execute_video_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     if not provider:
         raise RuntimeError('没有可用的视频模型提供商')
 
-    client = create_ai_client(provider)
+    client = create_ai_client_for_user(provider, user_id=user_id)
     raw_result = client._generate_video(
         prompt=prompt,
         model=provider.model_name,

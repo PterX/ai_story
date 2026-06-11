@@ -8,7 +8,7 @@ import requests
 
 from apps.ai_proxy.views import _build_provider_payload, _parse_float, _parse_int, _pick_provider
 from apps.projects.utils import parse_storyboard_json
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 
 from ..models import WorkflowNodeRun
 from .llm_helpers import collect_llm_stream_text
@@ -70,7 +70,7 @@ def execute_storyboard(node_run: WorkflowNodeRun, input_payload: Dict[str, Any])
     temperature = input_payload.get('temperature', 0.8)
     top_p = input_payload.get('top_p', 1.0)
 
-    client = create_ai_client(provider)
+    client = create_ai_client_for_user(provider, user=project.user)
     # 分镜输出较长，给流式读取更宽的超时窗口，避免长文本响应中途被 requests 读超时打断。
     client.config['timeout'] = max(int(client.config.get('timeout') or 0), int(provider.timeout or 0), 300)
 

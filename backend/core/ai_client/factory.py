@@ -12,12 +12,13 @@ from .registry import get_executor_class, validate_executor_for_provider
 logger = logging.getLogger(__name__)
 
 
-def create_ai_client(provider) -> BaseAIClient:
+def create_ai_client(provider, user_api_key=None) -> BaseAIClient:
     """
     根据ModelProvider实例创建AI客户端
 
     Args:
         provider: ModelProvider实例（来自apps.models.models）
+        user_api_key: 可选的用户自定义API Key，传入时覆盖 provider.api_key
 
     Returns:
         BaseAIClient: 客户端实例
@@ -61,10 +62,13 @@ def create_ai_client(provider) -> BaseAIClient:
             **provider.extra_config  # 合并额外配置
         }
 
+        # 使用用户自定义API Key或提供商默认API Key
+        effective_api_key = user_api_key or provider.api_key
+
         # 创建客户端实例
         client = executor_class(
             api_url=provider.api_url,
-            api_key=provider.api_key,
+            api_key=effective_api_key,
             model_name=provider.model_name,
             **config
         )
@@ -89,18 +93,19 @@ def create_ai_client(provider) -> BaseAIClient:
         raise Exception(f"创建AI客户端失败: {str(e)}")
 
 
-def create_ai_client_safe(provider) -> Optional[BaseAIClient]:
+def create_ai_client_safe(provider, user_api_key=None) -> Optional[BaseAIClient]:
     """
     安全版本的create_ai_client，捕获所有异常并返回None
 
     Args:
         provider: ModelProvider实例
+        user_api_key: 可选的用户自定义API Key
 
     Returns:
         Optional[BaseAIClient]: 客户端实例，失败时返回None
     """
     try:
-        return create_ai_client(provider)
+        return create_ai_client(provider, user_api_key=user_api_key)
     except Exception as e:
         logger.error(f"创建AI客户端失败（安全模式）: {str(e)}")
         return None

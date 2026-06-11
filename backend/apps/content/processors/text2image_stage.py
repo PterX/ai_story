@@ -17,7 +17,7 @@ import requests
 from django.conf import settings
 from jinja2 import Template, TemplateError
 
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import Text2ImageRequest
 from core.pipeline.base import PipelineContext, StageProcessor
@@ -774,7 +774,7 @@ class Text2ImageStageProcessor(StageProcessor):
                 'negative_prompt': client_params.get('negative_prompt', ''),
                 'sample_count': client_params.get('sample_count', 1),
             }
-            client = create_ai_client(provider)
+            client = create_ai_client_for_user(provider, user=project.user)
             response = ImageGenerationService.generate(
                 provider=provider,
                 client=client,

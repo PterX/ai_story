@@ -21,7 +21,7 @@ from jinja2 import Template, TemplateError
 
 from apps.models.models import ModelProvider
 from apps.projects.utils import parse_json, parse_storyboard_json
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
 
@@ -348,9 +348,10 @@ class PromptDebugService:
         stage_type: str,
         template: Optional[PromptTemplate] = None,
         input_payload: Optional[Dict[str, Any]] = None,
+        user=None,
     ) -> Dict[str, Any]:
         start_time = time.time()
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=user)
         runtime_overrides = input_payload if isinstance(input_payload, dict) else {}
         client_params = resolve_stage_client_params(
             stage_type,
@@ -387,9 +388,10 @@ class PromptDebugService:
         input_images: Optional[list] = None,
         template: Optional[PromptTemplate] = None,
         stage_type: str = 'image_generation',
+        user=None,
     ) -> Dict[str, Any]:
         start_time = time.time()
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=user)
         client_params = resolve_stage_client_params(
             stage_type,
             template=template,
@@ -437,9 +439,10 @@ class PromptDebugService:
         rendered_prompt: str,
         input_payload: Dict[str, Any],
         template: Optional[PromptTemplate] = None,
+        user=None,
     ) -> Dict[str, Any]:
         start_time = time.time()
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=user)
         image_url = input_payload.get('image_url') or input_payload.get('source_image_url') or input_payload.get('url')
         if not image_url:
             raise ValueError('图片编辑调试缺少 image_url')
@@ -490,9 +493,10 @@ class PromptDebugService:
         rendered_prompt: str,
         input_payload: Dict[str, Any],
         template: Optional[PromptTemplate] = None,
+        user=None,
     ) -> Dict[str, Any]:
         start_time = time.time()
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=user)
         image_url = input_payload.get('image_url') or input_payload.get('url')
         if not image_url:
             raise ValueError('图生视频调试缺少 image_url')
@@ -809,7 +813,7 @@ class PromptDebugService:
             'resolved_variables': resolved_variables,
         }
 
-        client = create_ai_client(provider)
+        client = create_ai_client_for_user(provider, user=user)
         runtime_overrides = input_payload if isinstance(input_payload, dict) else {}
         stream_client_params = resolve_stage_client_params(
             session.stage_type,
@@ -824,6 +828,7 @@ class PromptDebugService:
                 session.stage_type,
                 template=session.prompt_template,
                 input_payload=runtime_overrides,
+                user=user,
             )
             parsed_output = cls.parse_output(session.stage_type, result['raw_text'])
             cls.finalize_run(
@@ -958,6 +963,7 @@ class PromptDebugService:
                 session.stage_type,
                 template=session.prompt_template,
                 input_payload=input_payload if isinstance(input_payload, dict) else {},
+                user=user,
             )
             parsed_output = cls.parse_output(session.stage_type, result['raw_text'])
         elif session.stage_type in ('image_generation', 'multi_grid_image'):
@@ -968,6 +974,7 @@ class PromptDebugService:
                 input_images=input_images,
                 template=session.prompt_template,
                 stage_type=session.stage_type,
+                user=user,
             )
             parsed_output = result['parsed_output']
         elif session.stage_type == 'video_generation':
@@ -976,6 +983,7 @@ class PromptDebugService:
                 rendered_prompt,
                 input_payload or {},
                 template=session.prompt_template,
+                user=user,
             )
             parsed_output = result['parsed_output']
         elif session.stage_type == 'image_edit':
@@ -984,6 +992,7 @@ class PromptDebugService:
                 rendered_prompt,
                 input_payload or {},
                 template=session.prompt_template,
+                user=user,
             )
             parsed_output = result['parsed_output']
         else:

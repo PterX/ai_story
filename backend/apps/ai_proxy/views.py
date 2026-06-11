@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 from apps.models.models import ModelProvider
 from apps.models.serializers import ModelProviderListSerializer
 from core.ai_client.base import AIResponse
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
 from core.utils.file_storage import image_storage, video_storage
@@ -352,7 +352,7 @@ class ImagesGenerationsProxyView(APIView):
             )
 
         try:
-            client = create_ai_client(provider)
+            client = create_ai_client_for_user(provider, user=request.user)
             if provider_type == 'image_edit':
                 ai_response = ImageGenerationService.edit(
                     provider,
@@ -453,7 +453,7 @@ class VideosGenerationsProxyView(APIView):
             )
 
         try:
-            client = create_ai_client(provider)
+            client = create_ai_client_for_user(provider, user=request.user)
             raw_result = client._generate_video(
                 prompt=prompt,
                 model=provider.model_name,

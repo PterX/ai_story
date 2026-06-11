@@ -2,7 +2,7 @@
 
 from typing import Any, Dict
 
-from core.ai_client.factory import create_ai_client
+from apps.models.token_utils import create_ai_client_for_user
 from core.ai_client.image_service import ImageGenerationService
 from core.ai_client.schemas import ImageEditRequest, Text2ImageRequest
 from core.services.multi_grid_image_service import MultiGridImageService
@@ -75,7 +75,7 @@ def _resolve_image_provider_type(context: Dict[str, Any]) -> str:
     return 'text2image'
 
 
-def execute_image_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
+def execute_image_generation(input_payload: Dict[str, Any], user_id=None) -> Dict[str, Any]:
     """执行图片生成节点，支持宫格切割、文生图、图生图。"""
     operation = str(input_payload.get('operation') or '').strip().lower()
     if operation == 'grid_split':
@@ -123,7 +123,7 @@ def execute_image_generation(input_payload: Dict[str, Any]) -> Dict[str, Any]:
     if not provider:
         raise RuntimeError(f'没有可用的 {provider_type} 模型提供商')
 
-    client = create_ai_client(provider)
+    client = create_ai_client_for_user(provider, user_id=user_id)
     if provider_type == 'image_edit':
         ai_response = ImageGenerationService.edit(
             provider,

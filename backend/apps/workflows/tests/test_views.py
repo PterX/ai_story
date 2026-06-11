@@ -1205,7 +1205,7 @@ class WorkflowImageInputRuntimeTestCase(APITestCase):
         self.assertEqual(payload['source_image_url'], 'https://cdn.example.com/original.png')
         self.assertEqual(payload['source_images'], ['https://cdn.example.com/original.png'])
 
-    @patch('apps.workflows.node_executors.execute_image_generation.create_ai_client')
+    @patch('apps.workflows.node_executors.execute_image_generation.create_ai_client_for_user')
     @patch('apps.workflows.node_executors.execute_image_generation.ImageGenerationService.edit')
     @patch('apps.workflows.node_executors.execute_image_generation._pick_provider')
     def test_image_generation_converts_storage_reference_to_data_url(self, mock_pick_provider, mock_edit, mock_create_client):
@@ -1244,7 +1244,7 @@ class WorkflowImageInputRuntimeTestCase(APITestCase):
             '/api/v1/content/storage/image/2026-06-05/source.png',
         )
 
-    @patch('apps.workflows.node_executors.execute_video_generation.create_ai_client')
+    @patch('apps.workflows.node_executors.execute_video_generation.create_ai_client_for_user')
     @patch('apps.workflows.node_executors.execute_video_generation._pick_provider')
     def test_video_generation_converts_storage_image_to_base64(self, mock_pick_provider, mock_create_client):
         with tempfile.TemporaryDirectory() as storage_root:

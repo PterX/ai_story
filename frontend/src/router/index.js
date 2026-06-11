@@ -232,6 +232,19 @@ const routes = [
     ],
   },
   {
+    path: '/settings',
+    component: () => import('@/views/Layout.vue'),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: '',
+        name: 'UserSettings',
+        component: () => import('@/views/settings/UserSettings.vue'),
+        meta: { title: '个人设置' },
+      },
+    ],
+  },
+  {
     path: '/404',
     name: 'NotFound',
     component: () => import('@/views/NotFound.vue'),
@@ -265,24 +278,19 @@ router.beforeEach((to, from, next) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
   const requiresGuest = to.matched.some(record => record.meta.requiresGuest);
 
+  // 管理页面仅 superuser 可访问
+  const adminPaths = ['/models', '/prompts', '/assets'];
+  const isAdminPage = adminPaths.some(p => to.path === p || to.path.startsWith(p + '/'));
+
   if (requiresAuth && !isAuthenticated) {
     next({
       path: '/login',
       query: { redirect: to.fullPath },
     });
-  } else if (requiresAuth && !isSuperuser) {
-    store.commit('auth/CLEAR_AUTH');
-    next({
-      path: '/login',
-      query: { denied: 'superuser' },
-    });
+  } else if (requiresAuth && isAdminPage && !isSuperuser) {
+    next('/series');
   } else if (requiresGuest && isAuthenticated) {
-    if (isSuperuser) {
-      next('/series');
-    } else {
-      store.commit('auth/CLEAR_AUTH');
-      next();
-    }
+    next('/series');
   } else {
     next();
   }

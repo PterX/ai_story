@@ -232,19 +232,6 @@ const routes = [
     ],
   },
   {
-    path: '/settings',
-    component: () => import('@/views/Layout.vue'),
-    meta: { requiresAuth: true },
-    children: [
-      {
-        path: '',
-        name: 'UserSettings',
-        component: () => import('@/views/settings/UserSettings.vue'),
-        meta: { title: '个人设置' },
-      },
-    ],
-  },
-  {
     path: '/404',
     name: 'NotFound',
     component: () => import('@/views/NotFound.vue'),

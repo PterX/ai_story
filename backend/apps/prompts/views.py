@@ -658,6 +658,15 @@ class GlobalVariableViewSet(viewsets.ModelViewSet):
         ratio = request.data.get('ratio') or extra_config.get('ratio') or '1:1'
         resolution = request.data.get('resolution') or extra_config.get('resolution') or '2k'
 
+        try:
+            from apps.models.token_utils import create_ai_client_for_user
+            client = create_ai_client_for_user(provider, user=request.user)
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         response = ImageGenerationService.generate(
             provider=provider,
             request=Text2ImageRequest(
@@ -669,6 +678,7 @@ class GlobalVariableViewSet(viewsets.ModelViewSet):
                     'resolution': resolution,
                 },
             ),
+            client=client,
         )
 
         images = response.data if hasattr(response, 'data') else None

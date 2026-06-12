@@ -188,7 +188,7 @@ class ChatCompletionsProxyView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        from apps.models.token_utils import get_user_api_key
+        from apps.models.token_utils import validate_user_api_key
 
         provider = _pick_provider('llm', model)
         if not provider:
@@ -197,7 +197,15 @@ class ChatCompletionsProxyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        effective_api_key = get_user_api_key(request.user) or provider.api_key
+        try:
+            user_api_key = validate_user_api_key(user=request.user)
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        effective_api_key = user_api_key or provider.api_key
         headers = {
             'Authorization': f'Bearer {effective_api_key}',
             'Content-Type': 'application/json',
@@ -389,6 +397,12 @@ class ImagesGenerationsProxyView(APIView):
                     client=client,
                 )
             return self._normalize_image_result(ai_response, provider, provider_type)
+        except ValueError as exc:
+            logger.warning('图片代理参数错误: %s', exc)
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             logger.error('图片代理异常: %s', exc, exc_info=True)
             return Response(
@@ -494,6 +508,12 @@ class VideosGenerationsProxyView(APIView):
                 'data': result['data'],
                 'metadata': result['metadata'],
             })
+        except ValueError as exc:
+            logger.warning('视频代理参数错误: %s', exc)
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         except Exception as exc:
             logger.error('视频代理异常: %s', exc, exc_info=True)
             return Response(

@@ -47,6 +47,10 @@ services:
     build:
       context: ..
       dockerfile: ai_story/docker/frontend.Dockerfile
+      args:
+        LINKNOW_API_BASE_URL: ${LINKNOW_API_BASE_URL:-}
+        LINKNOW_CACHE_SERVER_URL: ${LINKNOW_CACHE_SERVER_URL:-}
+        LINKNOW_TRANSFER_STATION_URL: ${LINKNOW_TRANSFER_STATION_URL:-}
     ports:
       - "3000:3000"
     depends_on:

@@ -43,6 +43,7 @@ docker build -f ai_story/docker/frontend.Dockerfile -t xhongc/ai_story-frontend 
 docker build \
   -f ai_story/docker/frontend.Dockerfile \
   --build-arg LINKNOW_API_BASE_URL= \
+  --build-arg LINKNOW_TRANSFER_STATION_URL=https://example.com/transfer \
   --build-arg ADMIN_BASE_PATH=/admin/ \
   --build-arg ADMIN_API_BASE_URL=/api/v1 \
   -t xhongc/ai_story-frontend .

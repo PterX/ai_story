@@ -11,4 +11,4 @@ docker build -f ai_story/docker/frontend.Dockerfile . -t ai_story_frontend-v2
 docker buildx build -f docker/Dockerfile --platform linux/amd64 -t ai_story-v2 . --load
 
 # ai_story-v2 目录下
-docker buildx build -f ai_story/docker/frontend.Dockerfile --platform linux/amd64 -t ai_story_frontend-v2 . --load
+docker buildx build -f ai_story/docker/frontend.Dockerfile --platform linux/amd64 -t ai_story_frontend-v2 --build-arg LINKNOW_TRANSFER_STATION_URL=http://49.51.41.143:3000 . --load

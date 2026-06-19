@@ -3,6 +3,7 @@ OpenAI兼容的LLM客户端实现
 支持OpenAI API和兼容接口
 """
 
+import codecs
 import requests
 import json
 import time
@@ -125,7 +126,7 @@ class OpenAIClient(LLMClient):
         full_text = ""
 
         try:
-            timeout = self.config.get('timeout', 300)
+            timeout = self.config.get('timeout', 3000)
             api_url = self.api_url
             response = requests.post(
                 api_url,
@@ -144,11 +145,12 @@ class OpenAIClient(LLMClient):
 
             # 读取SSE流
             buffer = ''
+            decoder = codecs.getincrementaldecoder('utf-8')()
             for chunk_bytes in response.iter_content(chunk_size=1024):
                 if not chunk_bytes:
                     continue
 
-                buffer += chunk_bytes.decode('utf-8')
+                buffer += decoder.decode(chunk_bytes)
 
                 # 按行分割
                 while '\n' in buffer:
@@ -193,6 +195,39 @@ class OpenAIClient(LLMClient):
 
                         except json.JSONDecodeError:
                             continue
+
+            buffer += decoder.decode(b'', final=True)
+            if buffer:
+                line = buffer.strip()
+                if line.startswith('data: ') and line != 'data: [DONE]':
+                    try:
+                        json_str = line[6:]
+                        chunk = json.loads(json_str)
+                        if 'choices' in chunk and len(chunk['choices']) > 0:
+                            delta = chunk['choices'][0].get('delta', {})
+                            content = delta.get('content', '')
+                            if content:
+                                full_text += content
+                                yield {
+                                    'type': 'token',
+                                    'content': content,
+                                    'full_text': full_text
+                                }
+
+                            finish_reason = chunk['choices'][0].get('finish_reason')
+                            if finish_reason:
+                                latency_ms = int((time.time() - start_time) * 1000)
+                                yield {
+                                    'type': 'done',
+                                    'full_text': full_text,
+                                    'metadata': {
+                                        'latency_ms': latency_ms,
+                                        'model': self.model_name,
+                                        'finish_reason': finish_reason
+                                    }
+                                }
+                    except json.JSONDecodeError:
+                        pass
 
         except requests.RequestException as e:
             yield {

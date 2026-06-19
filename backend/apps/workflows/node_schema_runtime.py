@@ -83,6 +83,18 @@ def _extract_image_urls(payload: Any, *, prefer_online_url: bool = False) -> Lis
     return preferred_urls if preferred_urls else fallback_urls
 
 
+def _extract_text_prompt(payload: Any) -> str:
+    """Extract the most useful text content from an upstream node payload."""
+    if not isinstance(payload, dict):
+        return ''
+
+    for key in ('rewritten_text', 'source_text', 'raw_text', 'text', 'summary', 'prompt'):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ''
+
+
 def _payload_from_upstream_run(
     node_run: WorkflowNodeRun,
     upstream_node: WorkflowNode,
@@ -166,6 +178,42 @@ def _merge_upstream_image_inputs(node_run: WorkflowNodeRun, input_payload: Dict[
         input_payload['source_images'] = reference_images
 
 
+def _merge_upstream_text_inputs(node_run: WorkflowNodeRun, input_payload: Dict[str, Any]) -> None:
+    if node_run.node_type != 'video_generation':
+        return
+    if str(input_payload.get('prompt') or '').strip():
+        return
+    if not node_run.node_id or not node_run.canvas_id:
+        return
+
+    upstream_nodes = list(
+        WorkflowNode.objects
+        .filter(
+            outgoing_edges__canvas=node_run.canvas,
+            outgoing_edges__target_node_id=node_run.node_id,
+            outgoing_edges__is_enabled=True,
+            is_enabled=True,
+        )
+        .exclude(node_type='image_generation')
+        .distinct()
+    )
+    if not upstream_nodes:
+        return
+
+    upstream_texts: List[str] = []
+    for upstream_node in upstream_nodes:
+        payload = _payload_from_upstream_run(node_run, upstream_node) or _as_dict(upstream_node.latest_output)
+        text_prompt = _extract_text_prompt(payload)
+        if text_prompt:
+            _append_unique(upstream_texts, text_prompt)
+
+    if not upstream_texts:
+        return
+
+    input_payload['prompt'] = '\n\n'.join(upstream_texts)
+    input_payload.setdefault('text', upstream_texts[0])
+
+
 def _get_path(data: Any, path: str, default: Any = None) -> Any:
     """Resolve a simple dot path with numeric list indexes."""
     if not path:
@@ -238,6 +286,7 @@ def serialize_node_schema(schema: WorkflowNodeSchema) -> Dict[str, Any]:
 def prepare_node_run_input_payload(node_run: WorkflowNodeRun) -> Dict[str, Any]:
     input_payload = deepcopy(_as_dict(node_run.input_payload))
     _merge_upstream_image_inputs(node_run, input_payload)
+    _merge_upstream_text_inputs(node_run, input_payload)
     schema = resolve_node_schema(node_run)
     if schema:
         input_payload['__node_schema'] = serialize_node_schema(schema)

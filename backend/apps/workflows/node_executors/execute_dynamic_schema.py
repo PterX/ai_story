@@ -67,7 +67,7 @@ def execute_dynamic_schema(node_run: WorkflowNodeRun, input_payload: Dict[str, A
 
     schema_config = _as_dict(schema.schema_config)
     output_schema = _as_dict(schema_config.get('output_schema'))
-    max_tokens = _parse_int(input_payload.get('max_tokens'), 4096) or 4096
+    max_tokens = _parse_int(input_payload.get('max_tokens'), 40960) or 40960
     temperature = input_payload.get('temperature', 0.4)
     top_p = input_payload.get('top_p', 1.0)
     system_prompt = render_schema_system_prompt(
@@ -85,7 +85,8 @@ def execute_dynamic_schema(node_run: WorkflowNodeRun, input_payload: Dict[str, A
 
     client = create_ai_client_for_user(provider, user=getattr(getattr(node_run.canvas, 'project', None), 'user', None))
     client.config['timeout'] = max(int(client.config.get('timeout') or 0), int(provider.timeout or 0), 180)
-
+    if client.config.get("max_tokens"):
+        max_tokens = client.config["max_tokens"]
     result = {
         'id': f'chatcmpl-{uuid.uuid4().hex[:8]}',
         'model': provider.model_name,

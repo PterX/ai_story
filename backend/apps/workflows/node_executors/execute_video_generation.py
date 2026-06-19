@@ -11,9 +11,21 @@ from .image_input_helpers import prepare_image_inputs_for_api
 from .response_helpers import extract_video_url, normalize_video_result
 
 
+DEFAULT_VIDEO_PROMPTS = {
+    '生成视频',
+    '图生视频',
+}
+
+
+def _resolve_video_prompt(input_payload: Dict[str, Any]) -> str:
+    prompt = str(input_payload.get('prompt') or '').strip()
+    text = str(input_payload.get('text') or '').strip()
+    return f"{text}\n{prompt}"
+
+
 def execute_video_generation(input_payload: Dict[str, Any], user_id=None) -> Dict[str, Any]:
     """执行视频生成节点，调用视频模型从图片生成视频。"""
-    prompt = input_payload.get('prompt', '')
+    prompt = _resolve_video_prompt(input_payload)
     model = input_payload.get('model', '')
     image_inputs = _ensure_list(input_payload.get('image_urls') or input_payload.get('images') or input_payload.get('source_images'))
     image_input = input_payload.get('image_url') or input_payload.get('image')

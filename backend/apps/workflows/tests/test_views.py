@@ -1149,6 +1149,103 @@ class WorkflowImageInputRuntimeTestCase(APITestCase):
         self.assertEqual(payload['image_url'], 'https://cdn.example.com/original.png')
         self.assertEqual(payload['image_urls'], ['https://cdn.example.com/original.png'])
 
+    def test_prepare_video_generation_payload_uses_upstream_text_as_prompt(self):
+        workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
+        rewrite_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            title='文本',
+            status='completed',
+        )
+        video_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='video_node',
+            node_type='video_generation',
+            title='视频',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='rewrite-to-video',
+            source_node=rewrite_node,
+            target_node=video_node,
+        )
+        WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=rewrite_node,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            status='completed',
+            normalized_output={
+                'rewritten_text': '上游文本节点输出的提示词',
+                'prompt': '这条不应优先于 rewritten_text',
+            },
+        )
+        video_run = WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=video_node,
+            node_key='video_node',
+            node_type='video_generation',
+            status='pending',
+            input_payload={'prompt': '', 'model': 'video-model'},
+        )
+
+        payload = prepare_node_run_input_payload(video_run)
+
+        self.assertEqual(payload['prompt'], '上游文本节点输出的提示词')
+        self.assertEqual(payload['text'], '上游文本节点输出的提示词')
+
+    def test_prepare_video_generation_payload_keeps_explicit_prompt(self):
+        workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
+        rewrite_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            title='文本',
+            status='completed',
+        )
+        video_node = WorkflowNode.objects.create(
+            canvas=self.canvas,
+            node_key='video_node',
+            node_type='video_generation',
+            title='视频',
+            status='idle',
+        )
+        WorkflowEdge.objects.create(
+            canvas=self.canvas,
+            edge_key='rewrite-to-video-keep',
+            source_node=rewrite_node,
+            target_node=video_node,
+        )
+        WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=rewrite_node,
+            node_key='rewrite_node',
+            node_type='rewrite',
+            status='completed',
+            normalized_output={
+                'rewritten_text': '上游文本节点输出的提示词',
+            },
+        )
+        video_run = WorkflowNodeRun.objects.create(
+            workflow_run=workflow_run,
+            canvas=self.canvas,
+            node=video_node,
+            node_key='video_node',
+            node_type='video_generation',
+            status='pending',
+            input_payload={'prompt': '手动填写的视频提示词', 'model': 'video-model'},
+        )
+
+        payload = prepare_node_run_input_payload(video_run)
+
+        self.assertEqual(payload['prompt'], '手动填写的视频提示词')
+        self.assertNotIn('text', payload)
+
     def test_prepare_image_generation_payload_prefers_upstream_online_url(self):
         workflow_run = WorkflowRun.objects.create(project=self.project, series=self.series, created_by=self.user)
         source_image_node = WorkflowNode.objects.create(
@@ -1281,6 +1378,40 @@ class WorkflowImageInputRuntimeTestCase(APITestCase):
         self.assertEqual(request_kwargs['image_mime_type'], 'image/png')
         self.assertEqual(len(request_kwargs['image_base64s']), 1)
         self.assertEqual(result['normalized_output']['image_urls'], ['/api/v1/content/storage/image/2026-06-05/source.png'])
+
+    @patch('apps.workflows.node_executors.execute_video_generation.create_ai_client_for_user')
+    @patch('apps.workflows.node_executors.execute_video_generation._pick_provider')
+    def test_video_generation_prefers_upstream_text_over_default_prompt(self, mock_pick_provider, mock_create_client):
+        mock_pick_provider.return_value = SimpleNamespace(
+            id=uuid.uuid4(),
+            name='Video Provider',
+            provider_type='image2video',
+            get_provider_type_display=lambda: '图生视频',
+            model_name='video-model',
+            api_url='https://example.com/v1/videos',
+            api_key='secret',
+        )
+        captured_kwargs = {}
+
+        def fake_generate_video(**kwargs):
+            captured_kwargs.update(kwargs)
+            return {
+                'success': True,
+                'data': [{'url': 'https://cdn.example.com/generated.mp4'}],
+                'metadata': {},
+            }
+
+        mock_create_client.return_value = SimpleNamespace(_generate_video=fake_generate_video)
+
+        result = execute_video_generation({
+            'prompt': '生成视频',
+            'text': '上游文本节点传来的真实提示词',
+            'model': 'video-model',
+            'image_urls': ['https://cdn.example.com/source.png'],
+        })
+
+        self.assertEqual(captured_kwargs['prompt'], '上游文本节点传来的真实提示词')
+        self.assertEqual(result['normalized_output']['prompt'], '上游文本节点传来的真实提示词')
 
 
 class WorkflowNodeSchemaRuntimeTestCase(APITestCase):

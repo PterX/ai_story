@@ -560,10 +560,10 @@ class VideoGeneratorClient:
                 f'data:{image_mime_type};base64,{resolved_image_base64}'
                 for resolved_image_base64 in resolved_image_base64s
             ]
-            payload['image'] = data_urls[0]
+            # payload['image'] = data_urls[0]
             payload['images'] = data_urls
-            payload['imageBase64'] = resolved_image_base64s[0]
-            payload['imageBase64s'] = resolved_image_base64s
+            # payload['imageBase64'] = resolved_image_base64s[0]
+            # payload['imageBase64s'] = resolved_image_base64s
         if camera_movement_description:
             payload['cameraMovementDescription'] = camera_movement_description
         if resolution:

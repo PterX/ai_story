@@ -55,12 +55,4 @@ yarn-error.log
 /backend/storage/image/
 /backend/media
 
-# backend/apps/agent/**
-# backend/apps/mcp/**
-# !backend/apps/agent/**/
-# !backend/apps/mcp/**/
-# !backend/apps/agent/**/*.so
-# !backend/apps/mcp/**/*.so
-# !backend/apps/agent/.gitkeep
-# !backend/apps/mcp/.gitkeep
-# backend/apps/workflows/**
+dev.md

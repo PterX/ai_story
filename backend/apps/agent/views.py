@@ -15,11 +15,11 @@ from rest_framework_simplejwt.tokens import AccessToken
 from apps.models.models import ModelProvider
 from apps.models.opencode_config import OpencodeConfigSyncService
 from apps.users.models import UserPreference
+
 from .services.builtin_models import BuiltinAgentModelRegistry
 from .services.context_builder import AgentContextBuilder
 from .services.gateway import AgentGateway
 from .services.session_manager import AgentSessionManager
-
 
 ASSISTANT_MODEL_PREFERENCE_KEY = 'assistant_model_provider_id'
 SERVICE_CUTOFF_DATE = date(2026, 10, 30)

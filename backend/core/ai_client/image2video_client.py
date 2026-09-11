@@ -6,18 +6,17 @@
 """
 
 import base64
-from pathlib import Path
 import re
 import time
 import uuid
 from enum import Enum
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import requests
-from django.conf import settings
-
 from core.utils.file_storage import video_storage
+from django.conf import settings
 
 
 class TaskStatus(Enum):

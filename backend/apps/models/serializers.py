@@ -5,7 +5,7 @@
 """
 
 from rest_framework import serializers
-from .models import ModelProvider, ModelUsageLog, VendorConnectionConfig, UserApiToken
+from .models import ModelProvider, ModelUsageLog, VendorConnectionConfig
 from .vendor_catalog import VENDOR_CATALOG
 
 
@@ -458,31 +458,3 @@ class VendorConnectionConfigQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError({'capability': '当前厂商不支持该模型能力'})
         return attrs
 
-
-class UserApiTokenSerializer(serializers.ModelSerializer):
-    """用户 API Token 写入序列化器"""
-
-    class Meta:
-        model = UserApiToken
-        fields = ['api_token']
-
-    def validate_api_token(self, value):
-        if not value or not value.strip():
-            raise serializers.ValidationError("API Token 不能为空")
-        return value.strip()
-
-
-class UserApiTokenResponseSerializer(serializers.ModelSerializer):
-    """用户 API Token 响应序列化器（脱敏显示）"""
-
-    api_token = serializers.SerializerMethodField()
-
-    class Meta:
-        model = UserApiToken
-        fields = ['api_token', 'created_at', 'updated_at']
-
-    def get_api_token(self, obj):
-        token = obj.api_token or ''
-        if len(token) <= 8:
-            return token
-        return token[:4] + '****' + token[-4:]

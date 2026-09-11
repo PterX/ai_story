@@ -175,31 +175,6 @@ class VendorConnectionConfig(models.Model):
         return f'{self.user_id} - {self.vendor} - {self.capability}'
 
 
-class UserApiToken(models.Model):
-    """
-    用户 API Token
-    职责: 存储用户自定义的 API Token，用于覆盖 ModelProvider.api_key
-    """
-
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='api_token',
-        verbose_name='用户'
-    )
-    api_token = models.CharField('API Token', max_length=512)
-    created_at = models.DateTimeField('创建时间', auto_now_add=True)
-    updated_at = models.DateTimeField('更新时间', auto_now=True)
-
-    class Meta:
-        db_table = 'user_api_tokens'
-        verbose_name = '用户 API Token'
-        verbose_name_plural = '用户 API Token'
-
-    def __str__(self):
-        return f'{self.user_id} - {self.api_token[:8]}***'
-
-
 class ModelUsageLog(models.Model):
     """
     模型使用日志

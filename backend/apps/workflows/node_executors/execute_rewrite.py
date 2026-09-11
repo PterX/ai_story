@@ -64,16 +64,12 @@ def _read_image_url_as_data_uri(image_url: str, timeout: int) -> str:
 
 def execute_rewrite(input_payload: Dict[str, Any], user_id=None) -> Dict[str, Any]:
     """执行改写节点，调用 LLM 生成改写结果。"""
-    from apps.models.token_utils import validate_user_api_key
-
     model = input_payload.get('model', '')
     provider = _pick_provider('llm', model)
     if not provider:
         raise RuntimeError('没有可用的 LLM 模型提供商，请在 ai_story 后台配置 ModelProvider')
 
-    # 验证并获取用户 API Token（非超级用户必须配置）
-    user_api_key = validate_user_api_key(user_id=user_id)
-    effective_api_key = user_api_key or provider.api_key
+    effective_api_key = provider.api_key
 
     original_text = (input_payload.get('original_text') or '').strip()
     upstream_text = (input_payload.get('upstream_text') or '').strip()

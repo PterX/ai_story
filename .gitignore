@@ -10,6 +10,8 @@ venv/
 ENV/
 *.egg-info/
 dist/
+!linknow/dist/
+!linknow/dist/**
 build/
 wheels/
 

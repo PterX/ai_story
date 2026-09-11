@@ -20,3 +20,5 @@ ai_story/**/*.log
 
 linknow/**/node_modules
 linknow/**/dist
+!linknow/dist/
+!linknow/dist/**
